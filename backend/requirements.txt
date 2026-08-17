@@ -1,0 +1,6 @@
+# GlucoSaathi backend dependencies (MVP).
+#
+# No physical database driver is declared yet: the physical database
+# technology is decided separately. The current data layer runs in memory.
+pydantic>=2.0
+pytest>=7.0

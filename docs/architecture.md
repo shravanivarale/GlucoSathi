@@ -16,9 +16,15 @@ Food Recognition                   ── initially Gemini Vision, later team ML
 Food Normalization                 ── mapping label → canonical food entry
       │
       ▼
-Nutrition Database                ── PostgreSQL (e.g. INDB)
-      │  carbs/protein/fat/fiber/calories/nutrition_source
-      │  for the estimated serving size
+NutritionRepository                ── data-access abstraction (backend/app/repositories)
+      │  get_food / get_nutrition (per-100g values)
+      ▼
+Nutrition Database                ── logical store on a per-100g basis;
+      │                               dataset (e.g. INDB/IFCT) and physical DB TBD
+      │  carbs/protein/fat/fiber/calories per 100 g
+      ▼
+Serving-size calculation           ── per-100g × estimated_serving_size_g / 100
+      │  nutrition values for the estimated serving size
       ▼
 MealResult                         ── response envelope (backend/app/schemas/meal.py)
       │
@@ -56,9 +62,15 @@ recognition model is in use.
 4. **Food Normalization** — resolves the free-text label to a canonical food
    entry (`food_id`) and estimates the serving size. May use fuzzy matching,
    aliases, and locale-specific databases.
-5. **Nutrition Database** — PostgreSQL provides the nutrition facts (source
-   e.g. `INDB`) for the estimated serving size, independent of the
-   recognition model.
+5. **Nutrition Database / Repository** — the nutrition layer stores facts on a
+   per-100g basis behind the `NutritionRepository` abstraction at
+   `backend/app/repositories/`. A pure calculation scales the per-100g values
+   by the estimated serving size (`nutrition_per_100g × serving_size_g / 100`,
+   see `backend/app/services/nutrition_calculator.py`). This layer is
+   independent of the recognition model. No production records exist yet: the
+   actual dataset is integrated in a later stage. The physical database is
+   decided separately; the current `InMemoryNutritionRepository` ships empty
+   and is populated only from synthetic test fixtures.
 6. **MealResult** — the backend assembles the response envelope
    (`success`, `data`, `error`) from the recognition result and the nutrition
    values.
@@ -68,3 +80,66 @@ recognition model is in use.
 
 Failures at any stage are returned with the standard error envelope and one
 of the codes in `docs/failure-cases.md`.
+
+## Nutrition data layer
+
+Logical data design, independent of the recognition model, of the physical
+database, and of the actual dataset (`backend/app/models/food.py`). These are
+schema contracts; no production food/nutrition records are populated yet.
+
+- **Food** — `food_id` (stable identifier; names may change or have aliases),
+  `food_name`, `category`, `nutrition_source`, optional `reference_serving_g`
+  (populated only if the chosen dataset provides it).
+- **FoodNutrition** — per-100g values: `carbs_g_per_100g`,
+  `protein_g_per_100g`, `fat_g_per_100g`, `fiber_g_per_100g`,
+  `calories_per_100g`, `nutrition_source`. Values come from the dataset, never
+  from the recognition model.
+- **Aliases** — multiple food names may map to a single stable `food_id`. No
+  separate alias table; a lookup is enough for the MVP.
+- **Serving-size calculation** — `nutrition_for_serving =
+  nutrition_per_100g × estimated_serving_size_g / 100`
+  (`backend/app/services/nutrition_calculator.py`), producing
+  `ServingNutrition` which feeds the `MealResult` contract.
+- **Repository** — `NutritionRepository` exposes
+  `get_food(food_id)` / `get_nutrition(food_id)`. Recognition code and API
+  endpoints depend on this interface, never on a concrete storage
+  implementation. Missing foods / values raise `FoodNotFoundError` /
+  `NutritionDataNotFoundError`, matching the `FOOD_NOT_FOUND` /
+  `NUTRITION_DATA_NOT_FOUND` failure codes. `InMemoryNutritionRepository`
+  ships empty (no seeded records); tests inject synthetic fixtures
+  (`backend/tests/synthetic_data.py`). The physical database is TBD.
+
+## Dataset import contract (future)
+
+The system does not yet contain any nutrition dataset. The intended flow,
+implemented in a later stage once a dataset such as INDB, IFCT, or another
+approved source is obtained:
+
+```
+External Dataset (INDB / IFCT / other)
+      ↓
+Dataset Import / ETL (future importer)
+      ↓
+Normalized Food record
+      ↓
+Normalized Nutrition record (per 100 g)
+      ↓
+Nutrition Database
+```
+
+The future importer must produce the normalized records defined above, mapping
+the dataset's own column names onto at minimum:
+
+```
+food_id
+food_name
+nutrition_source
+carbs_g_per_100g
+protein_g_per_100g
+fat_g_per_100g
+fiber_g_per_100g
+calories_per_100g
+```
+
+No importer is implemented and no dataset is committed yet. Dataset column
+names are not assumed until the actual dataset is available.
