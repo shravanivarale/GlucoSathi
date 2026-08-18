@@ -44,3 +44,13 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 .env
+
+# Generated nutrition database (seeded from the INDB dataset by backend/app/seed)
+backend/data/*.db
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/

@@ -10,17 +10,17 @@ FastAPI (backend/app)              ── router layer (backend/app/api)
       │
       ▼
 Food Recognition                   ── initially Gemini Vision, later team ML model
-      │  food_id + food_name + recognition_confidence
-      │  + estimated_serving_size_g
+      │  food label/name + recognition_confidence
+      │  + estimated_serving_size_g   (recognition & portion — no nutrition)
       ▼
-Food Normalization                 ── mapping label → canonical food entry
+Food Normalization                 ── label → canonical food entry (food_id)
       │
       ▼
 NutritionRepository                ── data-access abstraction (backend/app/repositories)
       │  get_food / get_nutrition (per-100g values)
       ▼
 Nutrition Database                ── logical store on a per-100g basis;
-      │                               dataset (e.g. INDB/IFCT) and physical DB TBD
+      │                               SQLite seeded from the INDB dataset
       │  carbs/protein/fat/fiber/calories per 100 g
       ▼
 Serving-size calculation           ── per-100g × estimated_serving_size_g / 100
@@ -37,9 +37,11 @@ Flutter (MealResult model)         ── lib/models/meal_result.dart
 Recognition and nutrition are decoupled:
 
 - The **recognition model** (initially Gemini Vision, later our team's ML
-  model) identifies the food and estimates the serving size. It produces
-  `food_id`, `food_name`, `recognition_confidence`, and
-  `estimated_serving_size_g`.
+  model) identifies the food and estimates the serving size. It produces only
+  a food label/`food_name`, `recognition_confidence`, and
+  `estimated_serving_size_g` — never nutrition values. `food_id` is the
+  canonical nutrition-database identifier assigned when the label is
+  normalized against the nutrition data, not by the model itself.
 - The **nutrition database** (PostgreSQL, e.g. INDB) is the sole authority
   for nutrition values (`carbs_g`, `protein_g`, `fat_g`, `fiber_g`,
   `calories`, `nutrition_source`).
@@ -57,20 +59,22 @@ recognition model is in use.
    and returns a normalized response. Routing lives in `backend/app/api`;
    response schemas in `backend/app/schemas/meal.py`.
 3. **Food Recognition** — initially Gemini Vision, later our own ML model.
-   Returns candidate food labels with confidence scores; it never supplies
-   nutrition values.
+   Returns candidate food labels with confidence scores and a serving-size
+   estimate; it never supplies nutrition values. A canonical `food_id` is
+   assigned by normalization, not by the model.
 4. **Food Normalization** — resolves the free-text label to a canonical food
-   entry (`food_id`) and estimates the serving size. May use fuzzy matching,
-   aliases, and locale-specific databases.
+   entry (`food_id`); the serving-size estimate comes from the recognition
+   stage. May use fuzzy matching, aliases, and locale-specific databases.
 5. **Nutrition Database / Repository** — the nutrition layer stores facts on a
    per-100g basis behind the `NutritionRepository` abstraction at
    `backend/app/repositories/`. A pure calculation scales the per-100g values
    by the estimated serving size (`nutrition_per_100g × serving_size_g / 100`,
    see `backend/app/services/nutrition_calculator.py`). This layer is
-   independent of the recognition model. No production records exist yet: the
-   actual dataset is integrated in a later stage. The physical database is
-   decided separately; the current `InMemoryNutritionRepository` ships empty
-   and is populated only from synthetic test fixtures.
+   independent of the recognition model. The physical database is SQLite
+   (`backend/app/database/sqlite.py`), seeded from the INDB dataset by
+   `backend/app/seed/seed.py`, and exposed through
+   `SQLiteNutritionRepository`. `InMemoryNutritionRepository` remains for
+   tests (synthetic fixtures only).
 6. **MealResult** — the backend assembles the response envelope
    (`success`, `data`, `error`) from the recognition result and the nutrition
    values.
@@ -105,30 +109,28 @@ schema contracts; no production food/nutrition records are populated yet.
   endpoints depend on this interface, never on a concrete storage
   implementation. Missing foods / values raise `FoodNotFoundError` /
   `NutritionDataNotFoundError`, matching the `FOOD_NOT_FOUND` /
-  `NUTRITION_DATA_NOT_FOUND` failure codes. `InMemoryNutritionRepository`
-  ships empty (no seeded records); tests inject synthetic fixtures
-  (`backend/tests/synthetic_data.py`). The physical database is TBD.
+  `NUTRITION_DATA_NOT_FOUND` failure codes. `SQLiteNutritionRepository`
+  (seeded from INDB) is the production implementation;
+  `InMemoryNutritionRepository` is retained as a synthetic test fixture
+  backend and ships empty.
 
-## Dataset import contract (future)
+## Dataset import contract (implemented)
 
-The system does not yet contain any nutrition dataset. The intended flow,
-implemented in a later stage once a dataset such as INDB, IFCT, or another
-approved source is obtained:
+The INDB dataset (`data/Anuvaad_INDB_2024.11.xlsx`) is imported by
+`backend/app/seed`:
 
 ```
-External Dataset (INDB / IFCT / other)
+External Dataset (INDB)
+      ↓  app/seed/importer.py (field mapping, category, aliases)
+Normalized Food + FoodNutrition records (per 100 g)
       ↓
-Dataset Import / ETL (future importer)
+app/seed/seed.py  (idempotent wipe-and-reload; never duplicates)
       ↓
-Normalized Food record
-      ↓
-Normalized Nutrition record (per 100 g)
-      ↓
-Nutrition Database
+SQLite Nutrition Database (backend/app/database/sqlite.py)
 ```
 
-The future importer must produce the normalized records defined above, mapping
-the dataset's own column names onto at minimum:
+The importer maps the dataset's columns onto the normalized records defined
+above, producing at minimum:
 
 ```
 food_id
@@ -141,5 +143,6 @@ fiber_g_per_100g
 calories_per_100g
 ```
 
-No importer is implemented and no dataset is committed yet. Dataset column
-names are not assumed until the actual dataset is available.
+plus INDB's named reference serving (per-serving values) in the `food_servings`
+table and derived name aliases in `food_alias` for the Food Normalization
+stage.
