@@ -1,6 +1,6 @@
 /// Domain models for a food recognition result.
 ///
-/// Mirrors the `data` object returned by `POST /api/v1/food/analyze` (see
+/// Mirrors the `data` object returned by `POST /api/v1/foods/analyze` (see
 /// `docs/api-contract.md`). All numeric values are in grams except
 /// [NutritionInfo.calories], which is in kilocalories.
 class MealResult {

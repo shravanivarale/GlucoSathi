@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only network policy for the local Food Recognition MVP.
+
+     The FastAPI backend runs on plain HTTP during local development. Since
+     Android 9 (API 28+) blocks cleartext HTTP by default, this config
+     permits it ONLY for the Android emulator's host loopback alias
+     (10.0.2.2), the base URL used by ApiClient in debug builds. This file
+     lives in the debug source set, so it never ships in release builds.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

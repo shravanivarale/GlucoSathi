@@ -11,13 +11,33 @@ Recognition and nutrition are decoupled:
 
 The recognition model must never be treated as authoritative for carbohydrates, protein, fat, calories, or fiber. The nutrition layer stays independent of whichever recognition model is in use.
 
-## Endpoint
+## Endpoints
+
+All endpoints below are implemented and versioned under `/api/v1`.
+
+- `GET  /health` — service health check.
+- `POST /api/v1/foods/recognize` — upload a food image, get the recognized food name only.
+- `POST /api/v1/foods/analyze` — full workflow: image → recognition → INDB nutrition.
+
+### Health check
 
 ```
-POST /api/v1/food/analyze
+GET /health
 ```
 
-### Request
+`HTTP 200 OK`
+
+```json
+{ "status": "ok" }
+```
+
+### Recognize a food
+
+```
+POST /api/v1/foods/recognize
+```
+
+#### Request
 
 - `Content-Type`: `multipart/form-data`
 - Body field:
@@ -26,33 +46,93 @@ POST /api/v1/food/analyze
 |-------|--------|----------|--------------------------|
 | image | `file` | yes      | JPEG/PNG image of the meal |
 
-The contract covers only the request shape. Actual image upload / recognition is implemented in a later step.
-
-### Success response
+#### Success response
 
 `HTTP 200 OK`
 
 ```json
 {
-  "success": true,
-  "data": {
-    "meal_id": "uuid",
-    "food_id": "food-id",
-    "food_name": "Rajma Chawal",
-    "recognition_confidence": 0.91,
-    "estimated_serving_size_g": 250,
-    "nutrition": {
-      "carbs_g": 68.0,
-      "protein_g": 14.0,
-      "fat_g": 10.0,
-      "fiber_g": 8.0,
-      "calories": 420.0,
-      "nutrition_source": "INDB"
-    }
-  },
-  "error": null
+  "recognized_food": "Rajma Chawal"
 }
 ```
+
+`recognized_food` is the canonical food name produced by Gemini Vision (and is
+safe to search against the INDB-derived alias index).
+
+### Analyze a food (recognize + nutrition)
+
+```
+POST /api/v1/foods/analyze
+```
+
+#### Request
+
+- `Content-Type`: `multipart/form-data`
+- Body field:
+
+| Field | Type   | Required | Description              |
+|-------|--------|----------|--------------------------|
+| image | `file` | yes      | JPEG/PNG image of the meal |
+
+#### Success response (matched)
+
+`HTTP 200 OK`
+
+```json
+{
+  "recognized_food": "Poha",
+  "matched": true,
+  "food_id": "BFP044",
+  "food_name": "Poha",
+  "nutrition": {
+    "carb_g": 35.048,
+    "protein_g": 6.085,
+    "fat_g": 14.138,
+    "fibre_g": 3.716,
+    "energy_kcal": 294.526,
+    "basis": "per_100g",
+    "nutrition_source": "INDB"
+  }
+}
+```
+
+`nutrition` uses the actual INDB columns on a per-100g basis; `carb_g` is the
+key MVP field. Values always come from the INDB-backed database — never from
+the recognition model, and never fabricated when no reliable match exists.
+
+#### Success response (no reliable INDB match)
+
+`HTTP 200 OK`
+
+```json
+{
+  "recognized_food": "Rajma Chawal",
+  "matched": false,
+  "message": "Food not found in nutrition database"
+}
+```
+
+`Rajma Chawal` is not an exact INDB entry (the closest INDB food is "Kidney
+bean curry (Rajmah curry)"), so an honest unmatched response is returned
+rather than inventing nutrition values.
+
+#### Image validation
+
+Both POST endpoints share the same validation: JPEG/PNG only (declared MIME
+type + magic-byte sniffing) and a 10 MB maximum. Images are processed in
+memory and are never stored on disk.
+
+### Earlier (pre-MVP) contract
+
+The earlier design documented a single `POST /api/v1/food/analyze` that
+returned a `success`/`data`/`error` envelope with `MealResult`
+(`meal_id`, `food_id`, `food_name`, `recognition_confidence`,
+`estimated_serving_size_g`, `nutrition`) and a per-serving nutrition estimate.
+That contract is superseded for the Food Image Upload + Food Recognition MVP by
+the `/api/v1/foods/*` endpoints above. Schemas for the older design remain in
+`backend/app/schemas/meal.py`; `lib/models/meal_result.dart` still models its
+`MealResult` shape and can be used by the Flutter client to parse a future
+serving-aware endpoint.
 
 #### `data` fields
 

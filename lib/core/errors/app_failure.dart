@@ -63,6 +63,11 @@ class InternalErrorFailure extends AppFailure {
   const InternalErrorFailure(String message) : super('INTERNAL_ERROR', message);
 }
 
+/// The backend could not be reached, or did not respond in time.
+class NetworkFailure extends AppFailure {
+  const NetworkFailure(String message) : super('NETWORK_ERROR', message);
+}
+
 /// Any unexpected failure that does not map to a known code.
 class UnknownFailure extends AppFailure {
   const UnknownFailure(String message) : super('UNKNOWN', message);

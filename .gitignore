@@ -4,6 +4,7 @@
 *.pyc
 *.swp
 .DS_Store
+Thumbs.db
 .atom/
 .build/
 .buildlog/
@@ -19,9 +20,9 @@ migrate_working_dir/
 .idea/
 
 # The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# VS Code. Ignored for this repo (the Flutter template ships it commented out
+# in case you want to commit shared launch configs instead).
+.vscode/
 
 # Flutter/Dart/Pub related
 **/doc/api/
@@ -43,7 +44,13 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Environment files — never commit real secrets. .env is the live config;
+# .env.* covers variants like .env.local / .env.dev. The template is committed.
 .env
+.env.*
+
+!.env.example
 
 # Generated nutrition database (seeded from the INDB dataset by backend/app/seed)
 backend/data/*.db

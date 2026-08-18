@@ -8,7 +8,7 @@ import 'dart:io';
 
 /// Sends multipart requests to backend endpoints.
 abstract class ApiClient {
-  /// Uploads [image] to `POST /api/v1/food/analyze` and returns the decoded
+  /// Uploads [image] to `POST /api/v1/foods/analyze` and returns the decoded
   /// JSON response payload as a `Map`.
   Future<Map<String, dynamic>> analyzeFood(File image);
 }

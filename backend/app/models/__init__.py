@@ -8,6 +8,7 @@ represent foods, per-100g nutrition, and computed serving nutrition. See
 
 from .errors import (
     FoodNotFoundError,
+    FoodRecognitionError,
     NutritionDataError,
     NutritionDataNotFoundError,
 )
@@ -19,5 +20,6 @@ __all__ = [
     "ServingNutrition",
     "NutritionDataError",
     "FoodNotFoundError",
+    "FoodRecognitionError",
     "NutritionDataNotFoundError",
 ]

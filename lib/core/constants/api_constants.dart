@@ -7,6 +7,9 @@ library;
 abstract final class ApiEndpoints {
   ApiEndpoints._();
 
-  /// Relative path for food image analysis.
-  static const String foodAnalyze = '/api/v1/food/analyze';
+  /// Relative path for food image analysis (recognized food + INDB nutrition).
+  static const String foodsAnalyze = '/api/v1/foods/analyze';
+
+  /// Relative path that only names the food in an uploaded image.
+  static const String foodsRecognize = '/api/v1/foods/recognize';
 }

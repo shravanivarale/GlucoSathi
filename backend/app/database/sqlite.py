@@ -25,7 +25,7 @@ from ..models.errors import (
     NutritionDataNotFoundError,
 )
 from ..models.food import Food, FoodNutrition
-from ..repositories.base import NutritionRepository
+from ..repositories.base import FoodMatch, NutritionRepository
 from .records import ServingRecord
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "glucosaathi.db"
@@ -173,6 +173,19 @@ class SQLiteNutritionRepository(NutritionRepository):
         )
 
     def find_food_id(self, name: str) -> Optional[str]:
+        match = self.find_food_match(name)
+        return match.food_id if match else None
+
+    def find_food_match(self, name: str) -> Optional[FoodMatch]:
+        """Resolve a label to match metadata (tier + similarity score).
+
+        Mirrors ``find_food_id``'s three tiers but also reports how the match
+        was found so the analysis pipeline can reject unreliable fuzzy hits:
+
+        1. exact alias match  -> ``exact`` (score 1.0)
+        2. substring match    -> ``substring`` (score None)
+        3. fuzzy close-match  -> ``fuzzy`` (difflib ratio + prefix boost)
+        """
         label = normalize_label(name)
         if not label:
             return None
@@ -184,7 +197,7 @@ class SQLiteNutritionRepository(NutritionRepository):
                 (label,),
             ).fetchone()
             if row:
-                return row["food_id"]
+                return FoodMatch(food_id=row["food_id"], tier="exact", score=1.0)
 
             # 2. Substring match (SQL LIKE), preferring the shortest alias so a
             #    partial query resolves to the most generic matching food.
@@ -197,7 +210,9 @@ class SQLiteNutritionRepository(NutritionRepository):
                     (f"%{_escape_like(label)}%",),
                 ).fetchone()
                 if row:
-                    return row["food_id"]
+                    return FoodMatch(
+                        food_id=row["food_id"], tier="substring", score=None
+                    )
 
             # 3. Fuzzy close-match (typos such as "alu paratha"). Rank
             #    candidates by difflib ratio plus a prefix-similarity boost so
@@ -227,9 +242,10 @@ class SQLiteNutritionRepository(NutritionRepository):
             ):
                 best = (score, a["alias"])
         if best:
-            for a in aliases:
-                if a["alias"] == best[1]:
-                    return a["food_id"]
+            food_id = next(
+                a["food_id"] for a in aliases if a["alias"] == best[1]
+            )
+            return FoodMatch(food_id=food_id, tier="fuzzy", score=best[0])
         return None
 
     # --- Concrete additions (not part of the abstract interface) -----------

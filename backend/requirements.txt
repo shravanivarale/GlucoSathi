@@ -2,6 +2,14 @@
 pydantic>=2.0
 pytest>=7.0
 
+# API runtime (FastAPI entry point + request parsing).
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
+
+# Gemini Vision food recognition.
+google-genai>=1.0
+
 # Dataset import / seed tooling (backend/app/seed + its tests only).
 # Not required at runtime for food/nutrition lookup.
 pandas>=2.0
