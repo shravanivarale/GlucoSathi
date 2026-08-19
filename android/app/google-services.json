@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "511794664128",
+    "project_id": "glucosaathi",
+    "storage_bucket": "glucosaathi.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:511794664128:android:a9a87913c6ff919a46d325",
+        "android_client_info": {
+          "package_name": "com.example.glucosaathi"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCyNCo1sbKRF3smWW4um8c0JbrkJarutcc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
