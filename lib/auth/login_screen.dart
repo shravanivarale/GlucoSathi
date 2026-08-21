@@ -106,7 +106,22 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 60),
+                const SizedBox(height: 40),
+
+                Center(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: Image.asset(
+                      'assets/images/logo.png',
+                      height: 90,
+                      width: 90,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
 
                 const Text(
                   'GlucoSaathi',
@@ -117,14 +132,18 @@ class _LoginScreenState extends State<LoginScreen> {
                   textAlign: TextAlign.center,
                 ),
 
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
 
                 const Text(
-                  'Your diabetes-friendly food companion',
+                  'Your Health Companion',
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: Colors.grey,
+                  ),
                   textAlign: TextAlign.center,
                 ),
 
-                const SizedBox(height: 48),
+                const SizedBox(height: 36),
 
                 const Text(
                   'Login',
