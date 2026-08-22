@@ -15,7 +15,7 @@ Repo layout:
 ## Prerequisites
 
 - Python **3.12** (developed and tested on 3.12.3).
-- A Gemini API key (only needed for the food-recognition endpoints; the rest of the API runs without it).
+- A Gemini API key (only needed for the food-recognition endpoints; the rest of the API runs without it)
 - Flutter SDK if you also run the mobile client.
 
 ## Backend setup
