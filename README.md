@@ -15,7 +15,7 @@ Repo layout:
 ## Prerequisites
 
 - Python **3.12** (developed and tested on 3.12.3).
-- A Gemini API key (only needed for the food-recognition endpoints; the rest of the API runs without it)
+- A Gemini API key (only needed for the food-recognition endpoints; the rest of the API runs without it.)
 - Flutter SDK if you also run the mobile client.
 
 ## Backend setup
@@ -79,7 +79,7 @@ Run all backend commands from `backend/`.
    uvicorn app.main:app --reload
    ```
 
-   Serves at **http://localhost:8000** (port 8000). The Android emulator reaches
+   Serves at **http://localhost:8000**. The Android emulator reaches
    it via http://10.0.2.2:8000, which is the Flutter client's default
    (`--dart-define=API_BASE_URL=...` overrides it).
 
