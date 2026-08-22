@@ -5,7 +5,7 @@ import 'auth/auth_service.dart';
 import 'auth/login_screen.dart';
 import 'core/network/http_api_client.dart';
 import 'firebase_options.dart';
-import 'screens/food_recognition/food_recognition_screen.dart';
+import 'screens/home/home_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -53,7 +53,7 @@ class AuthGate extends StatelessWidget {
         }
 
         if (snapshot.hasData) {
-          return FoodRecognitionScreen(
+          return HomeScreen(
             client: HttpApiClient(),
           );
         }

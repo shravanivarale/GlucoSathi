@@ -83,18 +83,33 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 32),
+                const SizedBox(height: 16),
+
+                Center(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Image.asset(
+                      'assets/images/logo.png',
+                      height: 70,
+                      width: 70,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
 
                 const Text(
                   'Create your GlucoSaathi account',
                   style: TextStyle(
-                    fontSize: 24,
+                    fontSize: 22,
                     fontWeight: FontWeight.bold,
                   ),
                   textAlign: TextAlign.center,
                 ),
 
-                const SizedBox(height: 32),
+                const SizedBox(height: 24),
 
                 TextFormField(
                   controller: _emailController,
