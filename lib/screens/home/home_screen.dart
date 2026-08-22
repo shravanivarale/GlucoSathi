@@ -57,9 +57,11 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
   static const int _maxImageBytes = 10 * 1024 * 1024;
 
+  late final TabController _homeTabController;
   late final ApiClient _client = widget.client ?? HttpApiClient();
   late final ImagePickFunction _pickImage =
       widget.pickImage ?? _defaultPickImage;
@@ -86,6 +88,16 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _currentGlucose = widget.initialGlucose;
     _activeInsulin = widget.initialActiveInsulin;
+    _homeTabController = TabController(length: 2, vsync: this);
+    _homeTabController.addListener(() {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _homeTabController.dispose();
+    super.dispose();
   }
 
   Future<XFile?> _defaultPickImage(ImageSource source) =>
@@ -113,13 +125,178 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Opens interactive vitals editor for live demonstration of dynamic risk levels.
-  void _showEditVitalsDialog() {
+  /// Opens glucose-only editor (Demo Mode).
+  void _showEditGlucoseDialog() {
     final glucoseController =
         TextEditingController(text: _currentGlucose.toStringAsFixed(0));
+    String selectedTrend = _glucoseTrend;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+            return Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, bottomInset + 20),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Header
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.water_drop_outlined,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Adjust Glucose (Demo Mode)',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ],
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.pop(ctx),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Quick Presets:',
+                      style:
+                          TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ActionChip(
+                          avatar: const Icon(Icons.warning,
+                              size: 16, color: Colors.red),
+                          label: const Text('Low (65 mg/dL)'),
+                          onPressed: () {
+                            setModalState(() {
+                              glucoseController.text = '65';
+                              selectedTrend = '↓';
+                            });
+                          },
+                        ),
+                        ActionChip(
+                          avatar: const Icon(Icons.check_circle,
+                              size: 16, color: Colors.green),
+                          label: const Text('Target (110 mg/dL)'),
+                          onPressed: () {
+                            setModalState(() {
+                              glucoseController.text = '110';
+                              selectedTrend = '➔';
+                            });
+                          },
+                        ),
+                        ActionChip(
+                          avatar: const Icon(Icons.trending_up,
+                              size: 16, color: Colors.orange),
+                          label: const Text('Elevated (210 mg/dL)'),
+                          onPressed: () {
+                            setModalState(() {
+                              glucoseController.text = '210';
+                              selectedTrend = '↗';
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: glucoseController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Current Glucose (mg/dL)',
+                        prefixIcon: Icon(Icons.water_drop_outlined),
+                        border: OutlineInputBorder(),
+                        suffixText: 'mg/dL',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    // Trend chips — use Wrap to prevent overflow
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        const Text('Trend:',
+                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        ...['↑', '↗', '➔', '↘', '↓'].map((trend) {
+                          final isSelected = selectedTrend == trend;
+                          return ChoiceChip(
+                            label: Text(trend,
+                                style: const TextStyle(fontSize: 16)),
+                            selected: isSelected,
+                            onSelected: (val) {
+                              if (val) {
+                                setModalState(() => selectedTrend = trend);
+                              }
+                            },
+                          );
+                        }),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    FilledButton(
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () {
+                        final g = double.tryParse(glucoseController.text) ??
+                            _currentGlucose;
+                        setState(() {
+                          _currentGlucose = g;
+                          _glucoseTrend = selectedTrend;
+                        });
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                                'Glucose updated: ${g.toStringAsFixed(0)} mg/dL $selectedTrend'),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                      child: const Text('Apply & Recalculate Risk',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Opens insulin-only editor (Demo Mode).
+  void _showEditInsulinDialog() {
     final insulinController =
         TextEditingController(text: _activeInsulin.toStringAsFixed(1));
-    String selectedTrend = _glucoseTrend;
     String selectedInsulin = _insulinType;
 
     showModalBottomSheet<void>(
@@ -140,18 +317,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // Header
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Row(
                           children: [
                             Icon(
-                              Icons.tune,
+                              Icons.medication_outlined,
                               color: Theme.of(context).colorScheme.primary,
                             ),
                             const SizedBox(width: 8),
                             const Text(
-                              'Adjust Glucose & IOB (Demo Mode)',
+                              'Adjust Insulin / IOB (Demo Mode)',
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
@@ -167,7 +345,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 12),
                     const Text(
-                      'Quick Presets (Test Dynamic Risk Engine):',
+                      'Quick Presets:',
                       style:
                           TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                     ),
@@ -177,13 +355,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       runSpacing: 8,
                       children: [
                         ActionChip(
-                          avatar: const Icon(Icons.warning,
-                              size: 16, color: Colors.red),
-                          label: const Text('Low Risk Alert (65 mg/dL)'),
+                          avatar: const Icon(Icons.arrow_upward,
+                              size: 16, color: Colors.blue),
+                          label: const Text('High IOB (2.5 U)'),
                           onPressed: () {
                             setModalState(() {
-                              glucoseController.text = '65';
-                              selectedTrend = '↓';
                               insulinController.text = '2.5';
                             });
                           },
@@ -191,23 +367,19 @@ class _HomeScreenState extends State<HomeScreen> {
                         ActionChip(
                           avatar: const Icon(Icons.check_circle,
                               size: 16, color: Colors.green),
-                          label: const Text('Target (110 mg/dL)'),
+                          label: const Text('Normal (1.2 U)'),
                           onPressed: () {
                             setModalState(() {
-                              glucoseController.text = '110';
-                              selectedTrend = '➔';
                               insulinController.text = '1.2';
                             });
                           },
                         ),
                         ActionChip(
-                          avatar: const Icon(Icons.trending_up,
+                          avatar: const Icon(Icons.arrow_downward,
                               size: 16, color: Colors.orange),
-                          label: const Text('Elevated (210 mg/dL)'),
+                          label: const Text('Low IOB (0.5 U)'),
                           onPressed: () {
                             setModalState(() {
-                              glucoseController.text = '210';
-                              selectedTrend = '↗';
                               insulinController.text = '0.5';
                             });
                           },
@@ -216,44 +388,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 16),
                     TextField(
-                      controller: glucoseController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Current Glucose (mg/dL)',
-                        prefixIcon: Icon(Icons.water_drop_outlined),
-                        border: OutlineInputBorder(),
-                        suffixText: 'mg/dL',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        const Text('Trend: ',
-                            style: TextStyle(fontWeight: FontWeight.bold)),
-                        const SizedBox(width: 8),
-                        ...['↑', '↗', '➔', '↘', '↓'].map((trend) {
-                          final isSelected = selectedTrend == trend;
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                            child: ChoiceChip(
-                              label: Text(trend,
-                                  style: const TextStyle(fontSize: 16)),
-                              selected: isSelected,
-                              onSelected: (val) {
-                                if (val) {
-                                  setModalState(() => selectedTrend = trend);
-                                }
-                              },
-                            ),
-                          );
-                        }),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(
                       controller: insulinController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true),
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
                       decoration: const InputDecoration(
                         labelText: 'Active Insulin / IOB (Units)',
                         prefixIcon: Icon(Icons.medication_outlined),
@@ -297,26 +434,22 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       onPressed: () {
-                        final g = double.tryParse(glucoseController.text) ??
-                            _currentGlucose;
                         final i = double.tryParse(insulinController.text) ??
                             _activeInsulin;
                         setState(() {
-                          _currentGlucose = g;
                           _activeInsulin = i;
-                          _glucoseTrend = selectedTrend;
                           _insulinType = selectedInsulin;
                         });
                         Navigator.pop(ctx);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
-                                'Updated: Glucose ${g.toStringAsFixed(0)} mg/dL $selectedTrend, IOB ${i.toStringAsFixed(1)} U'),
+                                'Insulin updated: IOB ${i.toStringAsFixed(1)} U · $selectedInsulin'),
                             duration: const Duration(seconds: 2),
                           ),
                         );
                       },
-                      child: const Text('Apply Changes & Recalculate Risk',
+                      child: const Text('Apply & Recalculate Risk',
                           style: TextStyle(fontWeight: FontWeight.bold)),
                     ),
                   ],
@@ -563,78 +696,104 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: _openProfileScreen,
           ),
         ],
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // STEP 2.1: TOP SECTION (Glucose & Status Tiles)
-              GlucoseStatusCard(
-                glucoseValue: _currentGlucose,
-                glucoseTrend: _glucoseTrend,
-                activeInsulinUnits: _activeInsulin,
-                insulinType: _insulinType,
-                onTapGlucose: _showEditVitalsDialog,
-                onTapInsulin: _showEditVitalsDialog,
+        bottom: TabBar(
+          controller: _homeTabController,
+          tabs: [
+            const Tab(icon: Icon(Icons.home_outlined), text: 'Home'),
+            Tab(
+              icon: Badge(
+                isLabelVisible: _recentMeals.isNotEmpty,
+                label: Text('${_recentMeals.length}'),
+                child: const Icon(Icons.today_outlined),
               ),
-
-              const SizedBox(height: 12),
-
-              // STEP 2.1: DYNAMIC RISK BANNER
-              RiskPredictionBanner(
-                prediction: _currentRiskPrediction,
-              ),
-
-              const SizedBox(height: 16),
-
-              // STEP 2.2: CENTRAL "LOG MEAL" ACTION CARD (4 Buttons)
-              LogMealActionCard(
-                isLoading: _isAnalyzing,
-                onTakePhoto: _onTakePhoto,
-                onUploadImage: _onUploadImage,
-                onCookedDish: () => _openManualEntry(initialTab: 0),
-                onPackagedItem: () => _openManualEntry(initialTab: 1),
-              ),
-
-              const SizedBox(height: 16),
-
-              // STEP 2.3: QUICK-LOG BAR (Frequent Indian Foods)
-              QuickLogBar(
-                onQuickLog: _onQuickLog,
-              ),
-
-              const SizedBox(height: 16),
-
-              // PHOTO ANALYSIS & REVIEW SECTION (When image is picked)
-              if (_image != null) ...[
-                _buildImageReviewSection(),
-                const SizedBox(height: 16),
-              ],
-
-              if (_isAnalyzing) ...[
-                _buildLoadingCard(),
-                const SizedBox(height: 16),
-              ],
-
-              if (_errorMessage != null) ...[
-                _buildErrorCard(_errorMessage!),
-                const SizedBox(height: 16),
-              ],
-
-              if (_analysis != null) ...[
-                _buildAnalysisResultCard(_analysis!),
-                const SizedBox(height: 16),
-              ],
-
-              // RECENT LOGGED MEALS FEED
-              if (_recentMeals.isNotEmpty) ...[
-                _buildRecentMealsSection(),
-              ],
-            ],
-          ),
+              text: "Today's Meals",
+            ),
+          ],
         ),
+      ),
+      body: TabBarView(
+        controller: _homeTabController,
+        children: [
+          // ── TAB 1: HOME ──────────────────────────────────────────────────
+          SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // TOP SECTION (Glucose & Status Tiles)
+                  GlucoseStatusCard(
+                    glucoseValue: _currentGlucose,
+                    glucoseTrend: _glucoseTrend,
+                    activeInsulinUnits: _activeInsulin,
+                    insulinType: _insulinType,
+                    onTapGlucose: _showEditGlucoseDialog,
+                    onTapInsulin: _showEditInsulinDialog,
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // DYNAMIC RISK BANNER
+                  RiskPredictionBanner(
+                    prediction: _currentRiskPrediction,
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // CENTRAL "LOG MEAL" ACTION CARD (4 Buttons)
+                  LogMealActionCard(
+                    isLoading: _isAnalyzing,
+                    onTakePhoto: _onTakePhoto,
+                    onUploadImage: _onUploadImage,
+                    onCookedDish: () => _openManualEntry(initialTab: 0),
+                    onPackagedItem: () => _openManualEntry(initialTab: 1),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // QUICK-LOG BAR (Frequent Indian Foods)
+                  QuickLogBar(
+                    onQuickLog: _onQuickLog,
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // PHOTO ANALYSIS & REVIEW SECTION (when image is picked)
+                  if (_image != null) ...[
+                    _buildImageReviewSection(),
+                    const SizedBox(height: 16),
+                  ],
+
+                  if (_isAnalyzing) ...[
+                    _buildLoadingCard(),
+                    const SizedBox(height: 16),
+                  ],
+
+                  if (_errorMessage != null) ...[
+                    _buildErrorCard(_errorMessage!),
+                    const SizedBox(height: 16),
+                  ],
+
+                  if (_analysis != null) ...[
+                    _buildAnalysisResultCard(_analysis!),
+                    const SizedBox(height: 16),
+                  ],
+                ],
+              ),
+            ),
+          ),
+
+          // ── TAB 2: TODAY'S MEALS ─────────────────────────────────────────
+          SafeArea(
+            child: _recentMeals.isEmpty
+                ? _buildEmptyMealsState()
+                : SingleChildScrollView(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    child: _buildRecentMealsSection(),
+                  ),
+          ),
+        ],
       ),
     );
   }
@@ -830,6 +989,41 @@ class _HomeScreenState extends State<HomeScreen> {
           Text(label),
           Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyMealsState() {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.restaurant_menu_outlined,
+              size: 72,
+              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'No meals logged today',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Use Quick-Log or the Log Meal card on the\nHome tab to record what you eat.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
