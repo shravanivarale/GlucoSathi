@@ -32,7 +32,7 @@ class GlucoseApiService {
   // When testing on a physical phone, replace this with
   // your computer's LAN IP address.
   static const String baseUrl =
-      'http://10.25.6.217:8000';
+      'https://glucosaathi-backend.onrender.com';
 
   Future<GlucosePrediction> predictRaw(
     List<Map<String, dynamic>> readings,
