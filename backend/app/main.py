@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from .api.dependencies import close_food_recognizer
 from .api.errors import ApiException, api_exception_handler
 from .api.glucose import router as glucose_router
+from .api.foods import router as foods_router
 
 
 @asynccontextmanager
@@ -36,6 +37,7 @@ app = FastAPI(
 app.add_exception_handler(ApiException, api_exception_handler)
 
 app.include_router(glucose_router)
+app.include_router(foods_router)
 
 @app.get("/health", tags=["health"], summary="Service health check")
 def health() -> dict[str, str]:
