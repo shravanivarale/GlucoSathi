@@ -28,11 +28,14 @@ class GlucosePrediction {
 
 
 class GlucoseApiService {
-  // Local development only.
-  // When testing on a physical phone, replace this with
-  // your computer's LAN IP address.
-  static const String baseUrl =
-      'https://glucosaathi-backend.onrender.com';
+  static const String _baseUrlOverride = String.fromEnvironment('API_BASE_URL');
+
+  static String get baseUrl {
+    if (_baseUrlOverride.isNotEmpty) {
+      return _baseUrlOverride;
+    }
+    return 'https://glucosaathi-backend.onrender.com';
+  }
 
   Future<GlucosePrediction> predictRaw(
     List<Map<String, dynamic>> readings,

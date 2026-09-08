@@ -25,7 +25,6 @@ import '../../widgets/log_meal_action_card.dart';
 import '../../widgets/manual_food_entry_sheet.dart';
 import '../../widgets/quick_log_bar.dart';
 import '../../widgets/risk_prediction_banner.dart';
-import '../../services/glucose_api_service.dart';
 import '../profile/profile_screen.dart';
 
 /// Injectable image picker function for unit testing.
@@ -67,16 +66,10 @@ class _HomeScreenState extends State<HomeScreen>
   late final ImagePickFunction _pickImage =
       widget.pickImage ?? _defaultPickImage;
   final ImagePicker _imagePicker = ImagePicker();
-  final GlucoseApiService _glucoseApi = GlucoseApiService();
 
   // State: Glucose & Insulin
   late double _currentGlucose;
   late double _activeInsulin;
-
-  // State: AI Glucose Forecast
-  GlucosePrediction? _glucosePrediction;
-  bool _isPredictingGlucose = false;
-
   String _glucoseTrend = '➔';
   String _insulinType = 'Regular (Novolin R)';
   UserProfile _userProfile = const UserProfile();
@@ -89,8 +82,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   // State: Recent Logged Meals
   final List<LoggedMealEntry> _recentMeals = [];
-  // State: Demo Insulin Logs
-  final List<Map<String, dynamic>> _insulinLogs = [];
 
   @override
   void initState() {
@@ -101,91 +92,6 @@ class _HomeScreenState extends State<HomeScreen>
     _homeTabController.addListener(() {
       if (mounted) setState(() {});
     });
-
-    // Run the ML glucose forecast when the Home screen opens.
-    _runGlucosePrediction();
-  }
-
-  Future<void> _runGlucosePrediction() async {
-    if (!mounted) return;
-
-    setState(() {
-      _isPredictingGlucose = true;
-    });
-
-    try {
-      // Demo history: 24 readings × 5 minutes = 2 hours.
-      // The final reading is the current glucose value.
-      // This will later be replaceable with real CGM/history data.
-      final readings = <Map<String, dynamic>>[];
-
-      double step = 0.0;
-      if (_glucoseTrend == '↓') {
-        step = -2.0;
-      } else if (_glucoseTrend == '↘') {
-        step = -1.0;
-      } else if (_glucoseTrend == '↑') {
-        step = 2.0;
-      } else if (_glucoseTrend == '↗') {
-        step = 1.0;
-      }
-
-      final now = DateTime.now();
-      for (int i = 0; i < 24; i++) {
-        final minutesFromNow = (23 - i) * 5;
-        final cbg = _currentGlucose - (step * minutesFromNow);
-        
-        // Define 5-minute window for this bin
-        final binEnd = now.subtract(Duration(minutes: minutesFromNow));
-        final binStart = binEnd.subtract(const Duration(minutes: 5));
-
-        // Sum carbs for meals in this bin
-        double binCarbs = 0;
-        for (final meal in _recentMeals) {
-          if (meal.timestamp.isAfter(binStart) && 
-              meal.timestamp.isBefore(binEnd.add(const Duration(milliseconds: 1)))) {
-             binCarbs += meal.netCarbsGrams;
-          }
-        }
-
-        // Sum bolus for insulin logs in this bin
-        double binBolus = 0;
-        for (final log in _insulinLogs) {
-          final DateTime ts = log['timestamp'] as DateTime;
-          if (ts.isAfter(binStart) && 
-              ts.isBefore(binEnd.add(const Duration(milliseconds: 1)))) {
-            binBolus += (log['amount'] as num).toDouble();
-          }
-        }
-
-        readings.add({
-          'cbg': cbg.clamp(40.0, 400.0),
-          'basal': 0.0,
-          'hr': 0.0,
-          'gsr': 0.0,
-          'carbInput': binCarbs,
-          'bolus': binBolus,
-          'timestamp': binEnd.toIso8601String(),
-        });
-      }
-
-      final prediction = await _glucoseApi.predictRaw(readings);
-
-      if (!mounted) return;
-
-      setState(() {
-        _glucosePrediction = prediction;
-        _isPredictingGlucose = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        _isPredictingGlucose = false;
-      });
-
-      debugPrint('Glucose prediction error: $e');
-    }
   }
 
   @override
@@ -365,7 +271,6 @@ class _HomeScreenState extends State<HomeScreen>
                           _currentGlucose = g;
                           _glucoseTrend = selectedTrend;
                         });
-                        _runGlucosePrediction();
                         Navigator.pop(ctx);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
@@ -531,21 +436,10 @@ class _HomeScreenState extends State<HomeScreen>
                       onPressed: () {
                         final i = double.tryParse(insulinController.text) ??
                             _activeInsulin;
-                        
-                        // If increased, treat as a new bolus event for prediction
-                        if (i > _activeInsulin) {
-                          _insulinLogs.add({
-                            'amount': i - _activeInsulin,
-                            'timestamp': DateTime.now(),
-                            'type': selectedInsulin,
-                          });
-                        }
-
                         setState(() {
                           _activeInsulin = i;
                           _insulinType = selectedInsulin;
                         });
-                        _runGlucosePrediction();
                         Navigator.pop(ctx);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
@@ -737,7 +631,6 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() {
       _recentMeals.insert(0, entry);
     });
-    _runGlucosePrediction();
   }
 
   void _showMealLoggedSnackbar(LoggedMealEntry entry) {
@@ -848,11 +741,6 @@ class _HomeScreenState extends State<HomeScreen>
                     prediction: _currentRiskPrediction,
                   ),
 
-                  const SizedBox(height: 12),
-
-                  // AI GLUCOSE FORECAST
-                  _buildGlucoseForecastCard(),
-
                   const SizedBox(height: 16),
 
                   // CENTRAL "LOG MEAL" ACTION CARD (4 Buttons)
@@ -907,124 +795,6 @@ class _HomeScreenState extends State<HomeScreen>
                         const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     child: _buildRecentMealsSection(),
                   ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGlucoseForecastCard() {
-    final theme = Theme.of(context);
-    final prediction = _glucosePrediction;
-
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.auto_graph,
-                  color: theme.colorScheme.primary,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'AI Glucose Forecast',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Model-based prediction for the next 30 and 60 minutes',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 14),
-            if (_isPredictingGlucose)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: CircularProgressIndicator(),
-                ),
-              )
-            else if (prediction != null)
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildForecastValue(
-                      '30 min',
-                      prediction.prediction30Min,
-                      theme,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildForecastValue(
-                      '60 min',
-                      prediction.prediction60Min,
-                      theme,
-                    ),
-                  ),
-                ],
-              )
-            else
-              Text(
-                'Prediction unavailable. Check backend connection.',
-                style: TextStyle(
-                  color: theme.colorScheme.error,
-                ),
-              ),
-            const SizedBox(height: 10),
-            Text(
-              'Demo prediction • Not for medical or dosing decisions',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontSize: 10,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildForecastValue(
-    String label,
-    double value,
-    ThemeData theme,
-  ) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        vertical: 12,
-        horizontal: 10,
-      ),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        children: [
-          Text(
-            label,
-            style: theme.textTheme.labelMedium,
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${value.toStringAsFixed(0)} mg/dL',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
           ),
         ],
       ),
