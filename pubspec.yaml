@@ -36,7 +36,7 @@ dependencies:
   cupertino_icons: ^1.0.8
 
   # Standard HTTP client used by ApiClient's concrete implementation.
-  http: ^1.2.0
+  http: ^1.6.0
 
   # Camera capture and gallery selection for food images.
   image_picker: ^1.1.2
