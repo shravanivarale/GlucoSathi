@@ -9,8 +9,7 @@ Built for **Innovate4Impact 2026** · PS 2632 — *AI-Powered Hypoglycemia Predi
 [![Flutter](https://img.shields.io/badge/Flutter-3.12%2B-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Python](https://img.shields.io/badge/Python-3.12.3-3776AB?logo=python&logoColor=white)](https://www.python.org)
-[![License](https://img.shields.io/badge/license-MIT-lightgrey)](#license)
-[![Status](https://img.shields.io/badge/status-MVP-orange)](#project-status)
+
 
 [Features](#-features) · [Architecture](#-architecture) · [Quick Start](#-quick-start) · [API](#-api-reference) · [Roadmap](#-roadmap) · [Team](#-team)
 
