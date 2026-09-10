@@ -1,6 +1,7 @@
 """Shared byte fixtures and a fake Gemini recognizer for API tests."""
 
 from types import SimpleNamespace
+from typing import List, Optional
 
 from app.services.gemini_service import FoodRecognizer, RecognizedFood
 
@@ -18,19 +19,30 @@ NOT_AN_IMAGE = b"this is definitely not an image file"
 
 
 class FakeRecognizer(FoodRecognizer):
-    """Returns a fixed food name without calling any API."""
+    """Returns fixed food names without calling any API.
 
-    def __init__(self, food_name: str = "Poha") -> None:
-        self.food_name = food_name
+    Accepts either a single ``food_name`` string (for backward compatibility
+    with single-food tests) or a list of ``food_names`` for multi-food tests.
+    """
 
-    def recognize(self, image_bytes: bytes, mime_type: str) -> RecognizedFood:
-        return RecognizedFood(food_name=self.food_name)
+    def __init__(
+        self,
+        food_name: str = "Poha",
+        food_names: Optional[List[str]] = None,
+    ) -> None:
+        if food_names is not None:
+            self._names = food_names
+        else:
+            self._names = [food_name]
+
+    def recognize(self, image_bytes: bytes, mime_type: str) -> List[RecognizedFood]:
+        return [RecognizedFood(food_name=n) for n in self._names]
 
 
 class FakeRecognizerRaising(FoodRecognizer):
     """Simulates the recognition service failing."""
 
-    def recognize(self, image_bytes: bytes, mime_type: str) -> RecognizedFood:
+    def recognize(self, image_bytes: bytes, mime_type: str) -> List[RecognizedFood]:
         from app.models.errors import FoodRecognitionError
 
         raise FoodRecognitionError("boom")

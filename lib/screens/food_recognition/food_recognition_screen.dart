@@ -2,8 +2,12 @@
 ///
 /// Captures or picks a food image, uploads it to
 /// `POST /api/v1/foods/analyze` through [ApiClient], and renders the
-/// recognized food plus the INDB nutrition values returned by the backend.
+/// recognized foods plus INDB nutrition values returned by the backend.
 /// No Gemini or INDB logic lives here — both are handled server-side.
+///
+/// A single consistent response format is used: the backend always returns
+/// a `foods` list (one element for a single-food image, multiple for a
+/// meal) plus an optional `totalNutrition` aggregation.
 library;
 
 import 'dart:io';
@@ -260,30 +264,108 @@ class _FoodRecognitionScreenState extends State<FoodRecognitionScreen> {
   }
 
   Widget _buildResult(FoodAnalysis analysis) {
-    final nutrition = analysis.nutrition;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // --- Recognized Foods section ---
+        Text(
+          'Recognized Foods',
+          style: Theme.of(context).textTheme.labelLarge,
+        ),
+        const SizedBox(height: 8),
+        for (int i = 0; i < analysis.foods.length; i++) ...[
+          _buildFoodCard(analysis.foods[i]),
+          if (i < analysis.foods.length - 1) const SizedBox(height: 8),
+        ],
+        // --- Meal Total section ---
+        if (analysis.totalNutrition != null) ...[
+          const SizedBox(height: 16),
+          _buildMealTotal(analysis.totalNutrition!),
+        ] else if (analysis.foods.every((f) => !f.matched)) ...[
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'No nutrition data available for this meal',
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildFoodCard(SingleFoodResult food) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              'Recognized Food',
-              style: Theme.of(context).textTheme.labelLarge,
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    food.recognizedFood,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                _MatchBadge(matched: food.matched),
+              ],
             ),
-            const SizedBox(height: 4),
-            Text(
-              analysis.recognizedFood,
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 16),
-            if (analysis.matched && nutrition != null)
-              ..._buildNutrition(nutrition)
-            else
+            if (food.matched && food.nutrition != null) ...[
+              const SizedBox(height: 12),
+              ..._buildNutrition(food.nutrition!),
+            ] else ...[
+              const SizedBox(height: 8),
               Text(
-                'Food not found in nutrition database',
-                style: Theme.of(context).textTheme.bodyLarge,
+                food.message ?? 'Food not found in nutrition database',
+                style: Theme.of(context).textTheme.bodyMedium,
               ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMealTotal(Map<String, double> total) {
+    return Card(
+      color: Theme.of(context).colorScheme.primaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Meal Total',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            _NutritionRow(
+              'Carbohydrates',
+              '${total["carb_g"]?.toStringAsFixed(1) ?? "0"} g',
+            ),
+            _NutritionRow(
+              'Protein',
+              '${total["protein_g"]?.toStringAsFixed(1) ?? "0"} g',
+            ),
+            _NutritionRow(
+              'Fat',
+              '${total["fat_g"]?.toStringAsFixed(1) ?? "0"} g',
+            ),
+            _NutritionRow(
+              'Fibre',
+              '${total["fibre_g"]?.toStringAsFixed(1) ?? "0"} g',
+            ),
+            _NutritionRow(
+              'Energy',
+              '${total["energy_kcal"]?.toStringAsFixed(1) ?? "0"} kcal',
+            ),
           ],
         ),
       ),
@@ -297,24 +379,35 @@ class _FoodRecognitionScreenState extends State<FoodRecognitionScreen> {
       _NutritionRow('Fat', '${nutrition.fatG.toStringAsFixed(1)} g'),
       _NutritionRow('Fibre', '${nutrition.fibreG.toStringAsFixed(1)} g'),
       _NutritionRow('Energy', '${nutrition.energyKcal.toStringAsFixed(1)} kcal'),
-      const Divider(height: 24),
-      Text(
-        'Nutrition source: ${nutrition.nutritionSource}',
-        style: Theme.of(context).textTheme.bodyMedium,
-      ),
-      if (nutrition.basis.isNotEmpty)
-        Text(
-          'Basis: ${_basisLabel(nutrition.basis)}',
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
     ];
   }
+}
 
-  String _basisLabel(String basis) {
-    return switch (basis) {
-      'per_100g' => 'Per 100 g',
-      _ => basis,
-    };
+class _MatchBadge extends StatelessWidget {
+  const _MatchBadge({required this.matched});
+
+  final bool matched;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: matched
+            ? colorScheme.primaryContainer
+            : colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        matched ? 'Matched' : 'Not found',
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: matched
+                  ? colorScheme.onPrimaryContainer
+                  : colorScheme.onErrorContainer,
+            ),
+      ),
+    );
   }
 }
 

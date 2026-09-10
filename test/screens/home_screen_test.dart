@@ -106,7 +106,9 @@ void main() {
       expect(find.byType(SnackBar), findsOneWidget);
       expect(find.textContaining('Logged 2 Roti'), findsOneWidget);
 
-      // Check Today's Logged Meals list appears
+      // Switch to Today's Meals tab to verify the logged meal
+      await tester.tap(find.text("Today's Meals"));
+      await tester.pumpAndSettle();
       expect(find.text('Today’s Logged Meals'), findsOneWidget);
     });
 
@@ -147,7 +149,7 @@ void main() {
       await tester.tap(find.text('In Range (Tap to Edit)'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Adjust Glucose & IOB (Demo Mode)'), findsOneWidget);
+      expect(find.text('Adjust Glucose (Demo Mode)'), findsOneWidget);
       expect(find.text('Low Risk Alert (65 mg/dL)'), findsOneWidget);
 
       // Tap Low Risk Demo Preset (65 mg/dL)
@@ -183,16 +185,27 @@ void main() {
         tester,
         pickImage: (_) async => XFile(file.path),
         handler: (_) async => {
-          'recognized_food': 'Rajma Chawal Combo',
-          'matched': true,
-          'nutrition': {
+          'foods': [
+            {
+              'recognized_food': 'Rajma Chawal Combo',
+              'matched': true,
+              'nutrition': {
+                'carb_g': 22.0,
+                'protein_g': 4.8,
+                'fat_g': 3.5,
+                'fibre_g': 3.2,
+                'energy_kcal': 140.0,
+                'basis': 'per_100g',
+                'nutrition_source': 'INDB',
+              },
+            },
+          ],
+          'total_nutrition': {
             'carb_g': 22.0,
             'protein_g': 4.8,
             'fat_g': 3.5,
             'fibre_g': 3.2,
             'energy_kcal': 140.0,
-            'basis': 'per_100g',
-            'nutrition_source': 'INDB',
           },
         },
       );
@@ -207,9 +220,9 @@ void main() {
       await tester.tap(find.text('Analyze Food with INDB'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Recognized Food (INDB)'), findsOneWidget);
-      expect(find.text('Rajma Chawal Combo'), findsNWidgets(2));
-      expect(find.text('Carbohydrates'), findsOneWidget);
+      expect(find.text('Recognized Food'), findsOneWidget);
+      expect(find.text('Rajma Chawal Combo'), findsOneWidget);
+      expect(find.text('Carbs'), findsOneWidget);
       expect(find.text('22.0 g'), findsOneWidget);
     });
 

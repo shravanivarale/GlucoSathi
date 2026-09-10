@@ -22,12 +22,20 @@ from typing import Iterable
 
 from app.models.food import Food
 
-_GENITIVE_RE = re.compile(r" (ka|ki|ke) ")
+_GENITIVE_RE = re.compile(r"\b(ka|ki|ke)\b")
 
 
 def normalize_alias(name: str) -> str:
-    """Lowercase, collapse whitespace and trim an alias/label."""
-    return " ".join(name.strip().lower().split())
+    """Lowercase, strip punctuation (except '/'), collapse whitespace and trim.
+
+    Punctuation removal ensures that aliases generated from INDB names and
+    user queries produced by ``normalize_label`` (``app.database.sqlite``)
+    use the same canonical form.
+    """
+    normalized = name.strip().lower()
+    # Remove punctuation except slashes (used in INDB names like "parantha/paratha")
+    normalized = re.sub(r"[^\w\s/]", "", normalized)
+    return " ".join(normalized.split())
 
 
 def _word_count(phrase: str) -> int:
@@ -83,21 +91,22 @@ def _drop_genitives(phrase: str) -> set[str]:
 
 def expand_aliases(food_name: str) -> set[str]:
     """Return the normalized alias variants for a single food name."""
-    normalized = normalize_alias(food_name)
-    aliases: set[str] = {normalized}
-
-    open_idx = normalized.find(" (")
+    # Detect parenthetical content BEFORE normalization so that parentheses
+    # are not stripped before we can find them.
+    open_idx = food_name.find(" (")
     if open_idx == -1:
+        normalized = normalize_alias(food_name)
+        aliases: set[str] = {normalized}
         aliases.update(_slash_variants(normalized))
         for v in list(aliases):
             aliases.update(_drop_genitives(v))
         return aliases
 
-    primary = normalize_alias(normalized[:open_idx])
-    inner = normalized[normalized.find("(") + 1 : normalized.rfind(")")]
+    primary = normalize_alias(food_name[:open_idx])
+    inner = food_name[food_name.find("(") + 1 : food_name.rfind(")")]
     inner = normalize_alias(inner)
 
-    aliases.add(primary)
+    aliases = {normalize_alias(food_name), primary}
     aliases.update(_slash_variants(primary))
     aliases.update(_slash_variants(inner))
 

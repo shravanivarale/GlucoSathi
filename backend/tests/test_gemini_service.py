@@ -31,14 +31,24 @@ def _fake_client_factory(response, calls=None):
     return _FakeClient, calls
 
 
-def _structured_response(food_name):
-    return SimpleNamespace(parsed=SimpleNamespace(food_name=food_name), text=None)
+def _structured_response(food_names):
+    """Build a fake Gemini response with a parsed list of food items."""
+    if isinstance(food_names, str):
+        food_names = [food_names]
+    items = [SimpleNamespace(name=n) for n in food_names]
+    return SimpleNamespace(parsed=items, text=None)
 
 
-def _text_response(food_name):
+def _text_response(food_names):
+    """Build a fake Gemini response with JSON text containing food items."""
     import json
 
-    return SimpleNamespace(parsed=None, text=json.dumps({"food_name": food_name}))
+    if isinstance(food_names, str):
+        food_names = [food_names]
+    return SimpleNamespace(
+        parsed=None,
+        text=json.dumps([{"name": n} for n in food_names]),
+    )
 
 
 def test_recognize_uses_configured_model_and_sends_image(monkeypatch):
@@ -49,7 +59,8 @@ def test_recognize_uses_configured_model_and_sends_image(monkeypatch):
 
     result = recognizer.recognize(TINY_JPEG, "image/jpeg")
 
-    assert result.food_name == "Poha"
+    assert len(result) == 1
+    assert result[0].food_name == "Poha"
     assert calls and calls[0][0] == "gemini-2.5-flash"
     # The image bytes and MIME type are sent as an inline data part.
     part = calls[0][1][0]
@@ -88,7 +99,7 @@ def test_recognize_configures_timeout_and_retries(monkeypatch):
     assert opts.retry_options is not None
     assert opts.retry_options.attempts == 4
     # 429 RESOURCE_EXHAUSTED must NOT be retried (wasted quota); transient 5xx
-    # statuses and timeouts stay retryable.
+    # statuses stay retryable.
     assert opts.retry_options.http_status_codes == [408, 500, 502, 503, 504]
     assert 429 not in opts.retry_options.http_status_codes
     assert 503 in opts.retry_options.http_status_codes
@@ -104,18 +115,45 @@ def test_recognize_defaults_model_from_config(monkeypatch):
     assert calls and calls[0][0] == "gemini-2.5-flash"
 
 
-def test_recognize_extracts_food_name_from_parsed_object(monkeypatch):
+def test_recognize_extracts_single_food_item(monkeypatch):
     FakeClient, _ = _fake_client_factory(_structured_response("Masala dosa"))
     monkeypatch.setattr("google.genai.Client", FakeClient)
     recognizer = GeminiVisionRecognizer(api_key="test-key")
-    assert recognizer.recognize(TINY_JPEG, "image/jpeg").food_name == "Masala dosa"
+    result = recognizer.recognize(TINY_JPEG, "image/jpeg")
+    assert len(result) == 1
+    assert result[0].food_name == "Masala dosa"
+
+
+def test_recognize_extracts_multiple_food_items(monkeypatch):
+    FakeClient, _ = _fake_client_factory(
+        _structured_response(["Rice", "Chicken curry", "Roti"])
+    )
+    monkeypatch.setattr("google.genai.Client", FakeClient)
+    recognizer = GeminiVisionRecognizer(api_key="test-key")
+    result = recognizer.recognize(TINY_JPEG, "image/jpeg")
+    assert len(result) == 3
+    assert [r.food_name for r in result] == ["Rice", "Chicken curry", "Roti"]
 
 
 def test_recognize_falls_back_to_json_text(monkeypatch):
     FakeClient, _ = _fake_client_factory(_text_response("Rajma Chawal"))
     monkeypatch.setattr("google.genai.Client", FakeClient)
     recognizer = GeminiVisionRecognizer(api_key="test-key")
-    assert recognizer.recognize(TINY_JPEG, "image/jpeg").food_name == "Rajma Chawal"
+    result = recognizer.recognize(TINY_JPEG, "image/jpeg")
+    assert len(result) == 1
+    assert result[0].food_name == "Rajma Chawal"
+
+
+def test_recognize_falls_back_to_json_text_multiple(monkeypatch):
+    FakeClient, _ = _fake_client_factory(
+        _text_response(["Poha", "Tea"])
+    )
+    monkeypatch.setattr("google.genai.Client", FakeClient)
+    recognizer = GeminiVisionRecognizer(api_key="test-key")
+    result = recognizer.recognize(TINY_JPEG, "image/jpeg")
+    assert len(result) == 2
+    assert result[0].food_name == "Poha"
+    assert result[1].food_name == "Tea"
 
 
 def test_recognize_rejects_unusable_response(monkeypatch):
@@ -124,6 +162,14 @@ def test_recognize_rejects_unusable_response(monkeypatch):
     monkeypatch.setattr("google.genai.Client", FakeClient)
     recognizer = GeminiVisionRecognizer(api_key="test-key")
     with pytest.raises(FoodRecognitionError):
+        recognizer.recognize(TINY_JPEG, "image/jpeg")
+
+
+def test_recognize_rejects_empty_array(monkeypatch):
+    FakeClient, _ = _fake_client_factory(_structured_response([]))
+    monkeypatch.setattr("google.genai.Client", FakeClient)
+    recognizer = GeminiVisionRecognizer(api_key="test-key")
+    with pytest.raises(FoodRecognitionError, match="no usable food names"):
         recognizer.recognize(TINY_JPEG, "image/jpeg")
 
 
@@ -206,8 +252,8 @@ def test_recognize_keeps_client_alive_through_request(monkeypatch):
     first = recognizer.recognize(TINY_JPEG, "image/jpeg")
     second = recognizer.recognize(TINY_JPEG, "image/jpeg")
 
-    assert first.food_name == "Poha"
-    assert second.food_name == "Poha"
+    assert first[0].food_name == "Poha"
+    assert second[0].food_name == "Poha"
     assert used == ["gemini-2.5-flash", "gemini-2.5-flash"]
     # The client is created once and reused (not rebuilt per request).
     assert created == ["test-key"]

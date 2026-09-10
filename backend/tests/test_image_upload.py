@@ -30,7 +30,7 @@ def test_recognize_valid_jpeg_upload():
             files={"image": ("meal.jpg", TINY_JPEG, "image/jpeg")},
         )
         assert response.status_code == 200
-        assert response.json() == {"recognized_food": "Poha"}
+        assert response.json() == {"foods": [{"name": "Poha"}]}
     finally:
         app.dependency_overrides.clear()
 
@@ -43,7 +43,7 @@ def test_recognize_valid_png_upload():
             files={"image": ("meal.png", TINY_PNG, "image/png")},
         )
         assert response.status_code == 200
-        assert response.json() == {"recognized_food": "Masala dosa"}
+        assert response.json() == {"foods": [{"name": "Masala dosa"}]}
     finally:
         app.dependency_overrides.clear()
 

@@ -3,17 +3,17 @@
 Combines a ``FoodRecognizer`` (Gemini Vision) with a ``NutritionRepository``
 (SQLite seeded from INDB):
 
-    Image -> Gemini Vision -> food name -> INDB search -> nutrition result
+    Image -> Gemini Vision -> food items -> INDB search per item -> meal result
 
-The recognizer only names the food; every nutrition value comes from the
-repository (INDB). If no reliable INDB match exists no value is invented and
-``matched`` is ``False``.
+The recognizer names every distinct food in the image; every nutrition value
+comes from the repository (INDB). If no reliable INDB match exists for an
+item no value is invented and that item's ``matched`` is ``False``.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Dict, Optional
 
 from ..models.errors import FoodRecognitionError
 from ..repositories.base import NutritionRepository
@@ -24,10 +24,13 @@ from .gemini_service import FoodRecognizer
 # (e.g. "Rajma Chawal" -> "amla achaar" at 0.696) and would fabricate values.
 MIN_FUZZY_SCORE = 0.75
 
+# Nutrition keys used in per-100g payloads and aggregation.
+_NUTRITION_KEYS = ("carb_g", "protein_g", "fat_g", "fibre_g", "energy_kcal")
+
 
 @dataclass
 class FoodAnalysisResult:
-    """Result of running the full recognize-and-match pipeline."""
+    """Result of running the full recognize-and-match pipeline for ONE food."""
 
     recognized_food: str
     matched: bool = False
@@ -35,6 +38,14 @@ class FoodAnalysisResult:
     food_name: Optional[str] = None
     nutrition: Optional[dict] = None
     message: Optional[str] = None
+
+
+@dataclass
+class MealAnalysisResult:
+    """Aggregated result for an entire meal (one or more foods)."""
+
+    foods: list[FoodAnalysisResult] = field(default_factory=list)
+    total_nutrition: Optional[dict] = None
 
 
 def to_nutrition_payload(food_id: str, repository: NutritionRepository) -> dict:
@@ -55,8 +66,25 @@ def to_nutrition_payload(food_id: str, repository: NutritionRepository) -> dict:
     }
 
 
+def aggregate_nutrition(foods: list[FoodAnalysisResult]) -> Optional[dict]:
+    """Sum per-100g nutrition across all matched foods in the meal.
+
+    Returns ``None`` when no food was matched (no nutrition to aggregate).
+    """
+    totals: Dict[str, float] = {k: 0.0 for k in _NUTRITION_KEYS}
+    matched_count = 0
+    for f in foods:
+        if f.matched and f.nutrition:
+            for k in _NUTRITION_KEYS:
+                totals[k] += f.nutrition.get(k, 0.0)
+            matched_count += 1
+    if matched_count == 0:
+        return None
+    return totals
+
+
 class FoodAnalyzer:
-    """Pipeline that turns an image into a recognized food + INDB nutrition."""
+    """Pipeline that turns an image into recognized foods + INDB nutrition."""
 
     def __init__(
         self,
@@ -66,15 +94,24 @@ class FoodAnalyzer:
         self._recognizer = recognizer
         self._repository = repository
 
-    def recognize(self, image_bytes: bytes, mime_type: str) -> FoodAnalysisResult:
-        """Recognize the food name only (no nutrition lookup)."""
-        recognized = self._recognizer.recognize(image_bytes, mime_type)
-        return FoodAnalysisResult(recognized_food=recognized.food_name)
+    def recognize(self, image_bytes: bytes, mime_type: str) -> MealAnalysisResult:
+        """Recognize the food names only (no nutrition lookup)."""
+        recognized_items = self._recognizer.recognize(image_bytes, mime_type)
+        return MealAnalysisResult(
+            foods=[
+                FoodAnalysisResult(recognized_food=rf.food_name)
+                for rf in recognized_items
+            ]
+        )
 
-    def analyze(self, image_bytes: bytes, mime_type: str) -> FoodAnalysisResult:
+    def analyze(self, image_bytes: bytes, mime_type: str) -> MealAnalysisResult:
         """Run the complete workflow and return matched nutrition (if any)."""
-        recognized = self._recognizer.recognize(image_bytes, mime_type)
-        return self.lookup(recognized.food_name)
+        recognized_items = self._recognizer.recognize(image_bytes, mime_type)
+        results = [self.lookup(rf.food_name) for rf in recognized_items]
+        return MealAnalysisResult(
+            foods=results,
+            total_nutrition=aggregate_nutrition(results),
+        )
 
     def lookup(self, recognized_food: str) -> FoodAnalysisResult:
         """Match a recognized food name against INDB and return nutrition."""

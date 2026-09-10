@@ -1,8 +1,9 @@
 """Gemini Vision food recognition service.
 
 This module is the ONLY place that talks to Google's Gemini API. Its single
-responsibility is identifying the main food/dish in an image and returning a
-concise canonical food name — it never produces nutrition values.
+responsibility is identifying every distinct food/dish visible in an image and
+returning a list of concise canonical food names — it never produces nutrition
+values.
 
 The concrete class is isolated behind the ``FoodRecognizer`` interface so the
 rest of the application (routers, analyzer pipeline, tests) depends on the
@@ -15,7 +16,7 @@ import abc
 import json
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional
 
 from ..core.config import (
     DEFAULT_GEMINI_MODEL,
@@ -29,14 +30,18 @@ from ..models.errors import FoodRecognitionError
 # Supported image MIME types accepted by Gemini's inline image part.
 SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png")
 
-# Gemini returns the food name here; all other fields are rejected by the
-# response schema so Gemini cannot drift into nutrition/extra text.
+# Gemini returns an array of food items; each item must have a "name" field.
+# This schema forces Gemini to return structured per-item names rather than a
+# single combined string, so the backend can match each food independently.
 _RESPONSE_SCHEMA = {
-    "type": "OBJECT",
-    "properties": {
-        "food_name": {"type": "STRING"},
+    "type": "ARRAY",
+    "items": {
+        "type": "OBJECT",
+        "properties": {
+            "name": {"type": "STRING"},
+        },
+        "required": ["name"],
     },
-    "required": ["food_name"],
 }
 
 # Bound each Gemini request and retry transient failures. Without these the
@@ -55,11 +60,13 @@ GEMINI_RETRY_ATTEMPTS = 4  # 1 initial call + up to 3 backoff retries.
 GEMINI_RETRYABLE_STATUS_CODES = [408, 500, 502, 503, 504]
 
 _PROMPT = (
-    "You identify the food in meal images for an Indian nutrition app. "
-    "Look at the image and name the SINGLE main food/dish it shows. "
-    "Return a concise canonical food name (for example \"Rajma Chawal\" or "
-    "\"Masala dosa\") that is likely to exist in the Indian Nutrient Databank "
-    "(INDB). "
+    "You identify foods in meal images for an Indian nutrition app. "
+    "Look at the image and list EVERY distinct food or dish visible on the "
+    "plate. For each food, return just its name as it would appear in the "
+    "Indian Nutrient Databank (INDB). "
+    "Use short canonical names like \"Rice\", \"Chicken curry\", \"Roti\", "
+    "\"Dal\", \"Salad\". Return ONE entry per food item. "
+    "Never combine multiple foods into a single name. "
     "Never report amounts, weights, portions or cooking instructions. "
     "Never report nutrition values such as calories, carbohydrates, protein or "
     "fat. "
@@ -69,7 +76,7 @@ _PROMPT = (
 
 @dataclass
 class RecognizedFood:
-    """The main food identified in an image."""
+    """A single food identified in an image."""
 
     food_name: str
 
@@ -78,8 +85,8 @@ class FoodRecognizer(abc.ABC):
     """Interface implemented by the Gemini recognizer (mockable in tests)."""
 
     @abc.abstractmethod
-    def recognize(self, image_bytes: bytes, mime_type: str) -> RecognizedFood:
-        """Return the canonical food name identified in ``image_bytes``.
+    def recognize(self, image_bytes: bytes, mime_type: str) -> List[RecognizedFood]:
+        """Return the list of foods identified in ``image_bytes``.
 
         Raises ``FoodRecognitionError`` when the image cannot be recognized.
         """
@@ -102,7 +109,7 @@ class GeminiVisionRecognizer(FoodRecognizer):
         # and prevents a transient client from being closed mid-call.
         self._client = None
 
-    def recognize(self, image_bytes: bytes, mime_type: str) -> RecognizedFood:
+    def recognize(self, image_bytes: bytes, mime_type: str) -> List[RecognizedFood]:
         if not self._api_key:
             raise FoodRecognitionError(
                 "GEMINI_API_KEY is not configured; cannot call Gemini Vision"
@@ -143,12 +150,12 @@ class GeminiVisionRecognizer(FoodRecognizer):
                 f"Gemini Vision recognition failed: {exc}"
             ) from exc
 
-        food_name = self._extract_food_name(response)
-        if not food_name:
+        items = self._extract_food_items(response)
+        if not items:
             raise FoodRecognitionError(
-                "Gemini returned no usable food name for the image"
+                "Gemini returned no usable food names for the image"
             )
-        return RecognizedFood(food_name=food_name)
+        return items
 
     def close(self) -> None:
         """Release the shared Gemini client (idempotent).
@@ -164,8 +171,8 @@ class GeminiVisionRecognizer(FoodRecognizer):
                 close()
 
     @staticmethod
-    def _extract_food_name(response) -> Optional[str]:
-        """Extract the food name from a Gemini structured-output response.
+    def _extract_food_items(response) -> List[RecognizedFood]:
+        """Extract food items from a Gemini structured-output response.
 
         Prefers the SDK-parsed object (``response.parsed``) and falls back to
         parsing ``response.text`` as JSON -- this keeps the service robust
@@ -173,19 +180,36 @@ class GeminiVisionRecognizer(FoodRecognizer):
         """
         parsed = getattr(response, "parsed", None)
         if parsed is not None:
-            value = getattr(parsed, "food_name", None)
-            if value:
-                return str(value).strip()
+            # parsed may be a list of objects (structured output) or a single
+            # object wrapping a list.  Handle both forms.
+            items = parsed if isinstance(parsed, list) else getattr(parsed, "foods", [])
+            results: List[RecognizedFood] = []
+            for item in items:
+                name = getattr(item, "name", None)
+                if name:
+                    results.append(RecognizedFood(food_name=str(name).strip()))
+            if results:
+                return results
 
         text = getattr(response, "text", None)
         if not text:
-            return None
+            return []
         try:
             payload = json.loads(text)
         except (json.JSONDecodeError, TypeError):
-            return None
-        if isinstance(payload, dict):
-            value = payload.get("food_name")
-            if value:
-                return str(value).strip()
-        return None
+            return []
+        # payload may be a list of {"name": "..."} dicts or a dict wrapping a
+        # list under a "foods" key.
+        if isinstance(payload, list):
+            seq = payload
+        elif isinstance(payload, dict):
+            seq = payload.get("foods", [])
+        else:
+            return []
+        results = []
+        for entry in seq:
+            if isinstance(entry, dict):
+                name = entry.get("name")
+                if name:
+                    results.append(RecognizedFood(food_name=str(name).strip()))
+        return results

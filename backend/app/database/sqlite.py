@@ -15,6 +15,7 @@ Tables
 ``food_servings``   INDB named reference serving (``ServingRecord``)
 """
 
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -85,8 +86,15 @@ def init_schema(conn: sqlite3.Connection) -> None:
 
 
 def normalize_label(name: str) -> str:
-    """Normalize a free-text label for alias lookup."""
-    return " ".join(name.strip().lower().split())
+    """Normalize a free-text label for alias lookup.
+
+    Lowercases, strips punctuation (except ``/`` which appears in INDB names
+    like ``parantha/paratha``), collapses whitespace, and trims.
+    """
+    normalized = name.strip().lower()
+    # Remove punctuation except slashes (used in INDB names)
+    normalized = re.sub(r"[^\w\s/]", "", normalized)
+    return " ".join(normalized.split())
 
 
 def _escape_like(value: str) -> str:
@@ -182,6 +190,7 @@ class SQLiteNutritionRepository(NutritionRepository):
         Mirrors ``find_food_id``'s three tiers but also reports how the match
         was found so the analysis pipeline can reject unreliable fuzzy hits:
 
+        0. common alias   -> resolves Gemini-style names to INDB names
         1. exact alias match  -> ``exact`` (score 1.0)
         2. substring match    -> ``substring`` (score None)
         3. fuzzy close-match  -> ``fuzzy`` (difflib ratio + prefix boost)
@@ -189,6 +198,24 @@ class SQLiteNutritionRepository(NutritionRepository):
         label = normalize_label(name)
         if not label:
             return None
+
+        # 0. Common alias resolution: map Gemini-style names (e.g. "Chapati",
+        #    "Chicken Biryani") to INDB names before database lookup.
+        from ..seed.food_aliases import resolve_common_alias
+
+        resolved = resolve_common_alias(label)
+        if resolved != label:
+            resolved_label = normalize_label(resolved)
+            # Try exact match on the resolved name first
+            with self._connect() as conn:
+                row = conn.execute(
+                    "SELECT food_id FROM food_alias WHERE alias = ?",
+                    (resolved_label,),
+                ).fetchone()
+                if row:
+                    return FoodMatch(food_id=row["food_id"], tier="exact", score=1.0)
+            # Fall through to 3-tier matching with the resolved label
+            label = resolved_label
 
         # 1. Exact alias match (fast path).
         with self._connect() as conn:

@@ -3,9 +3,9 @@
 Endpoints (versioned under ``/api/v1/foods``):
 
 - ``POST /api/v1/foods/recognize`` — upload a food image, get the recognized
-  food name from Gemini Vision.
+  food names from Gemini Vision.
 - ``POST /api/v1/foods/analyze`` — full workflow: image -> Gemini Vision ->
-  food name -> INDB search -> nutrition result.
+  food items -> INDB search per item -> nutrition result with meal totals.
 
 Both endpoints accept ``multipart/form-data`` with a single ``image`` file
 (JPEG/PNG). Images are handled in memory and never stored on disk.
@@ -17,7 +17,12 @@ from fastapi import APIRouter, Depends, File, UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from ..models.errors import FoodRecognitionError
-from ..schemas.food_api import FoodAnalyzeResponse, FoodRecognizeResponse
+from ..schemas.food_api import (
+    FoodAnalyzeResponse,
+    FoodRecognizeResponse,
+    RecognizedFoodItem,
+    SingleFoodResult,
+)
 from ..services.food_analyzer import FoodAnalyzer
 from .dependencies import get_food_analyzer
 from .errors import ApiException
@@ -29,7 +34,7 @@ router = APIRouter(prefix="/api/v1/foods", tags=["foods"])
 @router.post(
     "/recognize",
     response_model=FoodRecognizeResponse,
-    summary="Recognize the food in an uploaded image",
+    summary="Recognize the foods in an uploaded image",
 )
 async def recognize_food(
     image: UploadFile = File(...),
@@ -42,14 +47,16 @@ async def recognize_food(
         result = await run_in_threadpool(analyzer.recognize, image_bytes, mime_type)
     except FoodRecognitionError as exc:
         _raise_recognition_error(exc)
-    return FoodRecognizeResponse(recognized_food=result.recognized_food)
+    return FoodRecognizeResponse(
+        foods=[RecognizedFoodItem(name=f.recognized_food) for f in result.foods],
+    )
 
 
 @router.post(
     "/analyze",
     response_model=FoodAnalyzeResponse,
     response_model_exclude_none=True,
-    summary="Recognize a food and return its INDB nutrition",
+    summary="Recognize foods and return their INDB nutrition",
 )
 async def analyze_food(
     image: UploadFile = File(...),
@@ -63,12 +70,18 @@ async def analyze_food(
     except FoodRecognitionError as exc:
         _raise_recognition_error(exc)
     return FoodAnalyzeResponse(
-        recognized_food=result.recognized_food,
-        matched=result.matched,
-        food_id=result.food_id,
-        food_name=result.food_name,
-        nutrition=result.nutrition,
-        message=result.message,
+        foods=[
+            SingleFoodResult(
+                recognized_food=f.recognized_food,
+                matched=f.matched,
+                food_id=f.food_id,
+                food_name=f.food_name,
+                nutrition=f.nutrition,
+                message=f.message,
+            )
+            for f in result.foods
+        ],
+        total_nutrition=result.total_nutrition,
     )
 
 

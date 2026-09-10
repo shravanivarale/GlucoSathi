@@ -646,20 +646,26 @@ class _HomeScreenState extends State<HomeScreen>
         _analysis = analysis;
       });
 
-      // If recognized with carbs, automatically log meal entry
-      if (analysis.matched && analysis.nutrition != null) {
-        final nut = analysis.nutrition!;
-        _addLoggedMeal(LoggedMealEntry(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          name: analysis.recognizedFood,
-          entryType: 'photo',
-          portionDescription: 'Photo Analysis (100g basis)',
-          totalCarbsGrams: nut.carbG,
-          fiberGrams: nut.fibreG,
-          netCarbsGrams: (nut.carbG - nut.fibreG).clamp(0.0, double.infinity),
-          isHighFatProtein: nut.fatG > 15.0,
-          timestamp: DateTime.now(),
-        ));
+      // Auto-log each matched food as a separate meal entry
+      final baseTime = DateTime.now();
+      for (var i = 0; i < analysis.foods.length; i++) {
+        final food = analysis.foods[i];
+        if (food.matched && food.nutrition != null) {
+          final nut = food.nutrition!;
+          _addLoggedMeal(LoggedMealEntry(
+            id:
+                '${baseTime.millisecondsSinceEpoch}_$i',
+            name: food.recognizedFood,
+            entryType: 'photo',
+            portionDescription: 'Photo Analysis (100g basis)',
+            totalCarbsGrams: nut.carbG,
+            fiberGrams: nut.fibreG,
+            netCarbsGrams:
+                (nut.carbG - nut.fibreG).clamp(0.0, double.infinity),
+            isHighFatProtein: nut.fatG > 15.0,
+            timestamp: baseTime,
+          ));
+        }
       }
     } on AppFailure catch (failure) {
       if (!mounted) return;
@@ -1134,7 +1140,8 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _buildAnalysisResultCard(FoodAnalysis analysis) {
     final theme = Theme.of(context);
-    final nutrition = analysis.nutrition;
+    final foods = analysis.foods;
+    final totalNutrition = analysis.totalNutrition;
 
     return Card(
       elevation: 2,
@@ -1148,68 +1155,118 @@ class _HomeScreenState extends State<HomeScreen>
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Recognized Food (INDB)',
+                  foods.length > 1 ? 'Recognized Foods' : 'Recognized Food',
                   style: theme.textTheme.labelLarge?.copyWith(
                     color: theme.colorScheme.primary,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                if (analysis.matched)
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.green.shade100,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      'MATCHED',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green.shade900,
-                      ),
-                    ),
+                Text(
+                  'INDB',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
+                ),
               ],
             ),
-            const SizedBox(height: 6),
-            Text(
-              analysis.recognizedFood,
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (analysis.matched && nutrition != null) ...[
-              _buildNutritionRow(
-                  'Carbohydrates', '${nutrition.carbG.toStringAsFixed(1)} g'),
-              _buildNutritionRow(
-                  'Protein', '${nutrition.proteinG.toStringAsFixed(1)} g'),
-              _buildNutritionRow(
-                  'Fat', '${nutrition.fatG.toStringAsFixed(1)} g'),
-              _buildNutritionRow(
-                  'Fibre', '${nutrition.fibreG.toStringAsFixed(1)} g'),
-              _buildNutritionRow('Energy',
-                  '${nutrition.energyKcal.toStringAsFixed(1)} kcal'),
+            const SizedBox(height: 8),
+            for (var i = 0; i < foods.length; i++) ...[
+              if (i > 0) const Divider(height: 16),
+              _buildSingleFoodResult(foods[i], theme),
+            ],
+            if (foods.length > 1 && totalNutrition != null) ...[
               const Divider(height: 20),
               Text(
-                'Source: ${nutrition.nutritionSource} • Basis: ${nutrition.basis}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+                'Meal Total',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.primary,
                 ),
               ),
-            ] else ...[
-              Text(
-                analysis.message ?? 'Food not found in nutrition database',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.error,
-                ),
-              ),
+              const SizedBox(height: 4),
+              _buildNutritionRow(
+                  'Carbohydrates',
+                  '${totalNutrition['carb_g']?.toStringAsFixed(1) ?? '0'} g'),
+              _buildNutritionRow(
+                  'Protein',
+                  '${totalNutrition['protein_g']?.toStringAsFixed(1) ?? '0'} g'),
+              _buildNutritionRow(
+                  'Fat',
+                  '${totalNutrition['fat_g']?.toStringAsFixed(1) ?? '0'} g'),
+              _buildNutritionRow(
+                  'Fibre',
+                  '${totalNutrition['fibre_g']?.toStringAsFixed(1) ?? '0'} g'),
+              _buildNutritionRow(
+                  'Energy',
+                  '${totalNutrition['energy_kcal']?.toStringAsFixed(1) ?? '0'} kcal'),
             ],
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildSingleFoodResult(SingleFoodResult food, ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Text(
+                food.recognizedFood,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            if (food.matched)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade100,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  'MATCHED',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green.shade900,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        if (food.matched && food.nutrition != null) ...[
+          _buildNutritionRow(
+              'Carbs', '${food.nutrition!.carbG.toStringAsFixed(1)} g'),
+          _buildNutritionRow(
+              'Protein', '${food.nutrition!.proteinG.toStringAsFixed(1)} g'),
+          _buildNutritionRow(
+              'Fat', '${food.nutrition!.fatG.toStringAsFixed(1)} g'),
+          _buildNutritionRow(
+              'Fibre', '${food.nutrition!.fibreG.toStringAsFixed(1)} g'),
+          _buildNutritionRow('Energy',
+              '${food.nutrition!.energyKcal.toStringAsFixed(1)} kcal'),
+          Text(
+            'Source: ${food.nutrition!.nutritionSource} • Basis: ${food.nutrition!.basis}',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ] else ...[
+          Text(
+            food.message ?? 'Food not found in nutrition database',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.error,
+            ),
+          ),
+        ],
+      ],
     );
   }
 

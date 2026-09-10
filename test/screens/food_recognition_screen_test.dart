@@ -93,6 +93,14 @@ final Map<String, dynamic> _matchedNutrition = {
   'nutrition_source': 'INDB',
 };
 
+final Map<String, double> _totalNutrition = {
+  'carb_g': 35.048,
+  'protein_g': 6.085,
+  'fat_g': 14.138,
+  'fibre_g': 3.716,
+  'energy_kcal': 294.526,
+};
+
 void main() {
   testWidgets('renders the title and both source options', (tester) async {
     await _pumpScreen(tester, handler: (_) async => {});
@@ -122,9 +130,14 @@ void main() {
     expect(find.text('Analyzing food...'), findsOneWidget);
 
     completer.complete({
-      'recognized_food': 'Poha',
-      'matched': true,
-      'nutrition': _matchedNutrition,
+      'foods': [
+        {
+          'recognized_food': 'Poha',
+          'matched': true,
+          'nutrition': _matchedNutrition,
+        },
+      ],
+      'total_nutrition': _totalNutrition,
     });
     await tester.pumpAndSettle();
 
@@ -139,9 +152,14 @@ void main() {
     await _pumpScreen(
       tester,
       handler: (_) async => {
-        'recognized_food': 'Poha',
-        'matched': true,
-        'nutrition': _matchedNutrition,
+        'foods': [
+          {
+            'recognized_food': 'Poha',
+            'matched': true,
+            'nutrition': _matchedNutrition,
+          },
+        ],
+        'total_nutrition': _totalNutrition,
       },
       pickImage: (source) async => XFile(file.path),
     );
@@ -149,20 +167,18 @@ void main() {
     await tester.tap(find.text('Analyze Food'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Recognized Food'), findsOneWidget);
+    expect(find.text('Recognized Foods'), findsOneWidget);
     expect(find.text('Poha'), findsOneWidget);
-    expect(find.text('Carbohydrates'), findsOneWidget);
-    expect(find.text('35.0 g'), findsOneWidget);
-    expect(find.text('Protein'), findsOneWidget);
-    expect(find.text('6.1 g'), findsOneWidget);
-    expect(find.text('Fat'), findsOneWidget);
-    expect(find.text('14.1 g'), findsOneWidget);
-    expect(find.text('Fibre'), findsOneWidget);
-    expect(find.text('3.7 g'), findsOneWidget);
-    expect(find.text('Energy'), findsOneWidget);
-    expect(find.text('294.5 kcal'), findsOneWidget);
-    expect(find.text('Nutrition source: INDB'), findsOneWidget);
-    expect(find.text('Basis: Per 100 g'), findsOneWidget);
+    expect(find.text('Carbohydrates'), findsAtLeastNWidgets(1));
+    expect(find.text('35.0 g'), findsAtLeastNWidgets(1));
+    expect(find.text('Protein'), findsAtLeastNWidgets(1));
+    expect(find.text('6.1 g'), findsAtLeastNWidgets(1));
+    expect(find.text('Fat'), findsAtLeastNWidgets(1));
+    expect(find.text('14.1 g'), findsAtLeastNWidgets(1));
+    expect(find.text('Fibre'), findsAtLeastNWidgets(1));
+    expect(find.text('3.7 g'), findsAtLeastNWidgets(1));
+    expect(find.text('Energy'), findsAtLeastNWidgets(1));
+    expect(find.text('294.5 kcal'), findsAtLeastNWidgets(1));
   });
 
   testWidgets('renders the unmatched message when no nutrition match exists',
@@ -172,9 +188,14 @@ void main() {
     await _pumpScreen(
       tester,
       handler: (_) async => {
-        'recognized_food': 'Rajma Chawal',
-        'matched': false,
-        'message': 'Food not found in nutrition database',
+        'foods': [
+          {
+            'recognized_food': 'Rajma Chawal',
+            'matched': false,
+            'message': 'Food not found in nutrition database',
+          },
+        ],
+        'total_nutrition': null,
       },
       pickImage: (source) async => XFile(file.path),
     );
@@ -182,7 +203,7 @@ void main() {
     await tester.tap(find.text('Analyze Food'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Recognized Food'), findsOneWidget);
+    expect(find.text('Recognized Foods'), findsOneWidget);
     expect(find.text('Rajma Chawal'), findsOneWidget);
     expect(find.text('Food not found in nutrition database'), findsOneWidget);
     expect(find.text('Carbohydrates'), findsNothing);
@@ -237,9 +258,14 @@ void main() {
       handler: (image) async {
         receivedImagePath = image.path;
         return {
-          'recognized_food': 'Poha',
-          'matched': true,
-          'nutrition': _matchedNutrition,
+          'foods': [
+            {
+              'recognized_food': 'Poha',
+              'matched': true,
+              'nutrition': _matchedNutrition,
+            },
+          ],
+          'total_nutrition': _totalNutrition,
         };
       },
       pickImage: (source) async => XFile(file.path),
@@ -267,9 +293,14 @@ void main() {
       tester,
       handler: (_) async {
         return {
-          'recognized_food': 'Poha',
-          'matched': true,
-          'nutrition': _matchedNutrition,
+          'foods': [
+            {
+              'recognized_food': 'Poha',
+              'matched': true,
+              'nutrition': _matchedNutrition,
+            },
+          ],
+          'total_nutrition': _totalNutrition,
         };
       },
       pickImage: (source) async =>
@@ -291,7 +322,15 @@ void main() {
 
     await _pumpScreen(
       tester,
-      handler: (_) async => {'recognized_food': 'Rajma Chawal', 'matched': false},
+      handler: (_) async => {
+        'foods': [
+          {
+            'recognized_food': 'Rajma Chawal',
+            'matched': false,
+          },
+        ],
+        'total_nutrition': null,
+      },
       pickImage: (source) async => XFile(file.path),
     );
     await _selectImage(tester, file);
