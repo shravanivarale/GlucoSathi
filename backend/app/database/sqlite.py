@@ -13,6 +13,9 @@ Tables
 ``food_nutrition``  per-100g values (``FoodNutrition``)
 ``food_alias``      alias -> ``food_id`` (Food Normalization)
 ``food_servings``   INDB named reference serving (``ServingRecord``)
+``cgm_connections``  CGM provider connection state
+``cgm_readings``     CGM glucose readings history
+``cgm_predictions``  Latest CGM prediction results
 """
 
 import re
@@ -26,7 +29,16 @@ from ..models.errors import (
     NutritionDataNotFoundError,
 )
 from ..models.food import Food, FoodNutrition
-from ..repositories.base import FoodMatch, NutritionRepository
+from ..repositories.base import (
+    CGMConnectionRecord,
+    CGMPredictionRecord,
+    CGMReadingRecord,
+    CGMRepository,
+    FoodMatch,
+    InsulinLogRecord,
+    InsulinLogRepository,
+    NutritionRepository,
+)
 from .records import ServingRecord
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "glucosaathi.db"
@@ -67,6 +79,51 @@ CREATE TABLE IF NOT EXISTS food_servings (
     fiber_g         REAL NOT NULL CHECK (fiber_g >= 0),
     calories        REAL NOT NULL CHECK (calories >= 0)
 );
+
+-- ── CGM tables ─────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS cgm_connections (
+    provider_name TEXT PRIMARY KEY,
+    status        TEXT NOT NULL DEFAULT 'not_connected',
+    connected_at  TEXT,
+    last_sync_at  TEXT
+);
+
+CREATE TABLE IF NOT EXISTS cgm_readings (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider      TEXT NOT NULL,
+    glucose_value REAL NOT NULL,
+    basal         REAL DEFAULT 0.0,
+    hr            REAL DEFAULT 0.0,
+    gsr           REAL DEFAULT 0.0,
+    carb_input    REAL DEFAULT 0.0,
+    bolus         REAL DEFAULT 0.0,
+    timestamp     TEXT NOT NULL,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_cgm_readings_provider_ts
+    ON cgm_readings(provider, timestamp DESC);
+
+CREATE TABLE IF NOT EXISTS cgm_predictions (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    prediction_30_min  REAL NOT NULL,
+    prediction_60_min  REAL NOT NULL,
+    readings_used      INTEGER NOT NULL,
+    predicted_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ── Insulin log table ──────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS insulin_logs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    dose_units    REAL NOT NULL,
+    insulin_type  TEXT NOT NULL DEFAULT 'rapid',
+    display_name  TEXT NOT NULL DEFAULT '',
+    logged_at     TEXT NOT NULL,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_insulin_logs_logged_at
+    ON insulin_logs(logged_at DESC);
 """
 
 
@@ -83,6 +140,13 @@ def connect(db_path: str | Path | None = None) -> sqlite3.Connection:
 def init_schema(conn: sqlite3.Connection) -> None:
     """Create tables/indexes if they do not exist."""
     conn.executescript(INIT_SCHEMA)
+    # Migration: add display_name column to insulin_logs if missing.
+    try:
+        conn.execute("SELECT display_name FROM insulin_logs LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute(
+            "ALTER TABLE insulin_logs ADD COLUMN display_name TEXT NOT NULL DEFAULT ''"
+        )
 
 
 def normalize_label(name: str) -> str:
@@ -322,3 +386,193 @@ class SQLiteNutritionRepository(NutritionRepository):
             "aliases": aliases,
             "servings": servings,
         }
+
+
+class SQLiteCGMRepository(CGMRepository):
+    """Persistent CGM repository backed by SQLite."""
+
+    def __init__(self, db_path: str | Path | None = None) -> None:
+        self.db_path = Path(db_path) if db_path else DEFAULT_DB_PATH
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = connect(self.db_path)
+        init_schema(conn)
+        return conn
+
+    # ── Connection state ──────────────────────────────────────────────
+
+    def get_connection(self, provider_name: str) -> Optional[CGMConnectionRecord]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM cgm_connections WHERE provider_name = ?",
+                (provider_name,),
+            ).fetchone()
+        if row is None:
+            return None
+        return CGMConnectionRecord(
+            provider_name=row["provider_name"],
+            status=row["status"],
+            connected_at=row["connected_at"],
+            last_sync_at=row["last_sync_at"],
+        )
+
+    def upsert_connection(self, record: CGMConnectionRecord) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO cgm_connections (provider_name, status, connected_at, last_sync_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(provider_name) DO UPDATE SET
+                       status=excluded.status,
+                       connected_at=excluded.connected_at,
+                       last_sync_at=excluded.last_sync_at""",
+                (record.provider_name, record.status, record.connected_at, record.last_sync_at),
+            )
+
+    def delete_connection(self, provider_name: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM cgm_connections WHERE provider_name = ?",
+                (provider_name,),
+            )
+
+    # ── Readings ─────────────────────────────────────────────────────
+
+    def insert_reading(self, record: CGMReadingRecord) -> int:
+        with self._connect() as conn:
+            cur = conn.execute(
+                """INSERT INTO cgm_readings
+                   (provider, glucose_value, basal, hr, gsr, carb_input, bolus, timestamp, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))""",
+                (record.provider, record.glucose_value, record.basal, record.hr,
+                 record.gsr, record.carb_input, record.bolus, record.timestamp,
+                 record.created_at or None),
+            )
+            return cur.lastrowid  # type: ignore[return-value]
+
+    def get_readings(
+        self,
+        provider: str,
+        limit: int = 288,
+    ) -> list[CGMReadingRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT * FROM cgm_readings
+                   WHERE provider = ?
+                   ORDER BY timestamp DESC
+                   LIMIT ?""",
+                (provider, limit),
+            ).fetchall()
+        return [
+            CGMReadingRecord(
+                id=row["id"],
+                provider=row["provider"],
+                glucose_value=row["glucose_value"],
+                basal=row["basal"],
+                hr=row["hr"],
+                gsr=row["gsr"],
+                carb_input=row["carb_input"],
+                bolus=row["bolus"],
+                timestamp=row["timestamp"],
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
+
+    # ── Predictions ──────────────────────────────────────────────────
+
+    def get_latest_prediction(self) -> Optional[CGMPredictionRecord]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM cgm_predictions ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        if row is None:
+            return None
+        return CGMPredictionRecord(
+            id=row["id"],
+            prediction_30_min=row["prediction_30_min"],
+            prediction_60_min=row["prediction_60_min"],
+            readings_used=row["readings_used"],
+            predicted_at=row["predicted_at"],
+        )
+
+    def insert_prediction(self, record: CGMPredictionRecord) -> int:
+        with self._connect() as conn:
+            cur = conn.execute(
+                """INSERT INTO cgm_predictions
+                   (prediction_30_min, prediction_60_min, readings_used, predicted_at)
+                   VALUES (?, ?, ?, COALESCE(?, datetime('now')))""",
+                (record.prediction_30_min, record.prediction_60_min,
+                 record.readings_used, record.predicted_at or None),
+            )
+            return cur.lastrowid  # type: ignore[return-value]
+
+
+class SQLiteInsulinLogRepository(InsulinLogRepository):
+    """Persistent insulin log repository backed by SQLite."""
+
+    def __init__(self, db_path: str | Path | None = None) -> None:
+        self.db_path = Path(db_path) if db_path else DEFAULT_DB_PATH
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = connect(self.db_path)
+        init_schema(conn)
+        return conn
+
+    def insert_log(self, record: InsulinLogRecord) -> int:
+        with self._connect() as conn:
+            cur = conn.execute(
+                """INSERT INTO insulin_logs
+                   (dose_units, insulin_type, display_name, logged_at, created_at)
+                   VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')))""",
+                (record.dose_units, record.insulin_type,
+                 record.display_name, record.logged_at,
+                 record.created_at or None),
+            )
+            return cur.lastrowid  # type: ignore[return-value]
+
+    def get_logs_since(self, since: str) -> list[InsulinLogRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT * FROM insulin_logs
+                   WHERE logged_at >= ?
+                   ORDER BY logged_at DESC""",
+                (since,),
+            ).fetchall()
+        return [
+            InsulinLogRecord(
+                id=row["id"],
+                dose_units=row["dose_units"],
+                insulin_type=row["insulin_type"],
+                display_name=row["display_name"],
+                logged_at=row["logged_at"],
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
+
+    def get_all_logs(self, limit: int = 100) -> list[InsulinLogRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT * FROM insulin_logs
+                   ORDER BY logged_at DESC, id DESC
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [
+            InsulinLogRecord(
+                id=row["id"],
+                dose_units=row["dose_units"],
+                insulin_type=row["insulin_type"],
+                display_name=row["display_name"],
+                logged_at=row["logged_at"],
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
+
+    def delete_log(self, log_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM insulin_logs WHERE id = ?",
+                (log_id,),
+            )

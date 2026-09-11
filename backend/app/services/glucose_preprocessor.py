@@ -23,6 +23,7 @@ FEATURE_COLS = [
 def compute_iob_rapid(
     bolus_series,
     time_step_min=5,
+    tau_onset=10,
     tau_end=240,
     tau_peak=75,
 ):
@@ -35,13 +36,17 @@ def compute_iob_rapid(
                 if t + tau_idx < len(bolus_vals):
                     tau = tau_idx * time_step_min
 
-                    s_rapid = 1 - (
-                        tau / tau_end
-                    ) * (
-                        1
-                        + (tau_end - tau)
-                        / (tau_end - tau_peak)
-                    )
+                    if tau < tau_onset:
+                        # Linear ramp: IOB goes from 0 → dose during onset.
+                        s_rapid = tau / tau_onset
+                    else:
+                        s_rapid = 1 - (
+                            tau / tau_end
+                        ) * (
+                            1
+                            + (tau_end - tau)
+                            / (tau_end - tau_peak)
+                        )
 
                     s_rapid = max(0.0, s_rapid)
                     iob[t + tau_idx] += (
@@ -175,11 +180,11 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     df["IOB_analogue"] = compute_iob_rapid(
-        df["bolus"]
+        df.get("bolus_rapid", df["bolus"])
     )
 
     df["IOB_regular"] = compute_iob_regular(
-        df["bolus"]
+        df.get("bolus_regular", df["bolus"])
     )
 
     df["IOB_NPH"] = compute_iob_nph(
@@ -225,7 +230,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
 
     if "timestamp" in df.columns:
         timestamps = pd.to_datetime(
-            df["timestamp"]
+            df["timestamp"], format="ISO8601"
         )
         minutes = (
             timestamps.dt.hour * 60
