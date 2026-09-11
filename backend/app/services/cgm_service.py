@@ -85,7 +85,9 @@ class CGMService:
 
     def get_status(self) -> dict:
         """Return connection metadata for the active provider."""
+        print(f"[CGM-DEBUG]   get_status: fetching readings from provider…")
         readings = self.provider.get_readings(limit=1)
+        print(f"[CGM-DEBUG]   get_status: {len(readings)} latest reading(s)")
         result = {
             "provider_name": self.provider.name,
             "is_connected": self.provider.is_available,

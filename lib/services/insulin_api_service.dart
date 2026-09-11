@@ -78,7 +78,7 @@ class InsulinApiService {
     if (_baseUrlOverride.isNotEmpty) {
       return _baseUrlOverride;
     }
-    return 'http://10.0.2.2:8082';
+    return 'https://glucosaathi-backend.onrender.com';
   }
 
   /// Fetch recent insulin logs (newest first).
@@ -99,13 +99,21 @@ class InsulinApiService {
     required String loggedAt,
     String? displayName,
   }) async {
-    final response = await _post(ApiEndpoints.insulinLog, {
-      'dose_units': doseUnits,
-      'insulin_type': insulinType,
-      'display_name': displayName ?? insulinType,
-      'logged_at': loggedAt,
-    });
-    return InsulinLog.fromJson(response);
+    final url = '$_baseUrl${ApiEndpoints.insulinLog}';
+    print('[INSULIN-DEBUG] ── FLUTTER: logInsulin request → $url');
+    try {
+      final response = await _post(ApiEndpoints.insulinLog, {
+        'dose_units': doseUnits,
+        'insulin_type': insulinType,
+        'display_name': displayName ?? insulinType,
+        'logged_at': loggedAt,
+      });
+      print('[INSULIN-DEBUG] ── FLUTTER: logInsulin response ← id=${response['id']}');
+      return InsulinLog.fromJson(response);
+    } catch (e) {
+      print('[INSULIN-DEBUG] ── FLUTTER: logInsulin FAILED ✗ $e');
+      rethrow;
+    }
   }
 
   /// Delete an insulin log entry.

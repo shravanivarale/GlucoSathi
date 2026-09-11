@@ -24,28 +24,34 @@ class _DexcomConnectionScreenState extends State<DexcomConnectionScreen> {
   String? _statusMessage;
 
   Future<void> _connectDexcom() async {
+    print('[CGM-DEBUG] ── FLUTTER: _connectDexcom started ──');
     setState(() {
       _isConnecting = true;
       _statusMessage = null;
     });
 
     // Simulate connection delay (future: OAuth flow)
+    print('[CGM-DEBUG] ── FLUTTER: Simulating 2s connection delay…');
     await Future.delayed(const Duration(seconds: 2));
 
     if (!mounted) return;
 
     // Verify backend CGM status
+    print('[CGM-DEBUG] ── FLUTTER: Calling apiService.connectCGM()…');
     setState(() => _statusMessage = 'Verifying backend status...');
 
     try {
       final apiService = CgmApiService();
       // Persist connection state on the backend.
       await apiService.connectCGM();
+      print('[CGM-DEBUG] ── FLUTTER: connectCGM() succeeded, calling getCGMStatus()…');
       final status = await apiService.getCGMStatus();
 
       if (!mounted) return;
 
+      print('[CGM-DEBUG] ── FLUTTER: status.isConnected = ${status.isConnected}');
       if (status.isConnected) {
+        print('[CGM-DEBUG] ── FLUTTER: Connection successful ✓ ──');
         // Backend confirms mock provider is available
         final result = CgmConnection(
           status: CgmConnectionStatus.connected,
@@ -55,6 +61,7 @@ class _DexcomConnectionScreenState extends State<DexcomConnectionScreen> {
         );
         Navigator.pop(context, result);
       } else {
+        print('[CGM-DEBUG] ── FLUTTER: Backend reports not connected ✗ ──');
         setState(() {
           _isConnecting = false;
           _statusMessage = 'Backend CGM provider is not available. Please try again.';
@@ -62,12 +69,14 @@ class _DexcomConnectionScreenState extends State<DexcomConnectionScreen> {
       }
     } on AppFailure catch (e) {
       if (!mounted) return;
+      print('[CGM-DEBUG] ── FLUTTER: AppFailure: ${e.message} ──');
       setState(() {
         _isConnecting = false;
         _statusMessage = e.message;
       });
     } catch (e) {
       if (!mounted) return;
+      print('[CGM-DEBUG] ── FLUTTER: Exception: $e ──');
       setState(() {
         _isConnecting = false;
         _statusMessage = 'Could not connect to the CGM service. Please try again.';

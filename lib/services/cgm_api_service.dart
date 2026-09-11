@@ -34,13 +34,21 @@ class CgmApiService {
     if (_baseUrlOverride.isNotEmpty) {
       return _baseUrlOverride;
     }
-    return 'http://10.0.2.2:8082';
+    return 'https://glucosaathi-backend.onrender.com';
   }
 
   /// Fetch the current CGM provider connection status from the backend.
   Future<CgmBackendStatus> getCGMStatus() async {
-    final response = await _get(ApiEndpoints.cgmStatus);
-    return CgmBackendStatus.fromJson(response);
+    final url = '$_baseUrl${ApiEndpoints.cgmStatus}';
+    print('[CGM-DEBUG] ── FLUTTER: getCGMStatus request → $url');
+    try {
+      final response = await _get(ApiEndpoints.cgmStatus);
+      print('[CGM-DEBUG] ── FLUTTER: getCGMStatus response ← provider=${response['provider_name']}, connected=${response['is_connected']}');
+      return CgmBackendStatus.fromJson(response);
+    } catch (e) {
+      print('[CGM-DEBUG] ── FLUTTER: getCGMStatus FAILED ✗ $e');
+      rethrow;
+    }
   }
 
   /// Fetch the single most recent CGM glucose reading.
@@ -77,8 +85,16 @@ class CgmApiService {
 
   /// Connect the current CGM provider and persist the state.
   Future<CgmBackendStatus> connectCGM() async {
-    final response = await _post(ApiEndpoints.cgmConnect, {});
-    return CgmBackendStatus.fromJson(response);
+    final url = '$_baseUrl${ApiEndpoints.cgmConnect}';
+    print('[CGM-DEBUG] ── FLUTTER: connectCGM request → $url');
+    try {
+      final response = await _post(ApiEndpoints.cgmConnect, {});
+      print('[CGM-DEBUG] ── FLUTTER: connectCGM response ← ${response.length} keys');
+      return CgmBackendStatus.fromJson(response);
+    } catch (e) {
+      print('[CGM-DEBUG] ── FLUTTER: connectCGM FAILED ✗ $e');
+      rethrow;
+    }
   }
 
   /// Disconnect the current CGM provider and remove persisted state.

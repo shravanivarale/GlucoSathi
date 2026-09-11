@@ -113,7 +113,9 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _loadInsulinLogs() async {
     try {
+      print('[INSULIN-DEBUG] ── FLUTTER: _loadInsulinLogs request ──');
       final logs = await _insulinApi.getInsulinLogs(limit: 100);
+      print('[INSULIN-DEBUG] ── FLUTTER: _loadInsulinLogs received ${logs.length} logs ──');
       if (!mounted) return;
       double totalLogged = 0.0;
       setState(() {
@@ -130,7 +132,9 @@ class _HomeScreenState extends State<HomeScreen>
         // Sync Home display to total logged dose from backend.
         _activeInsulin = totalLogged;
       });
-    } catch (_) {
+      print('[INSULIN-DEBUG] ── FLUTTER: _loadInsulinLogs activeInsulin=${totalLogged} ──');
+    } catch (e) {
+      print('[INSULIN-DEBUG] ── FLUTTER: _loadInsulinLogs FAILED ✗ $e ──');
       // Non-critical: keep in-memory logs if backend unreachable.
     }
   }
@@ -560,15 +564,30 @@ class _HomeScreenState extends State<HomeScreen>
                       onPressed: () async {
                         final i = double.tryParse(insulinController.text) ??
                             _activeInsulin;
-                        
-                        // Log a new dose when the user increases the value.
-                        // The delta (i - _activeInsulin) is the actual units
-                        // administered since the last logged total.
-                        if (i > _activeInsulin) {
-                          final doseUnits = i - _activeInsulin;
-                          final now = DateTime.now();
 
-                          // Persist to backend.
+                        // Update UI immediately so the user sees the new
+                        // value right away without waiting for the backend.
+                        final doseDelta = i - _activeInsulin;
+                        if (!mounted) return;
+                        setState(() {
+                          _activeInsulin = i;
+                          _insulinType = selectedInsulin;
+                        });
+                        _runGlucosePrediction();
+                        if (!ctx.mounted) return;
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                                'Insulin updated: IOB ${i.toStringAsFixed(1)} U · $selectedInsulin'),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+
+                        // Persist to backend in the background (non-blocking).
+                        if (doseDelta > 0) {
+                          final doseUnits = doseDelta;
+                          final now = DateTime.now();
                           try {
                             final insulinLog = await _insulinApi.logInsulin(
                               doseUnits: doseUnits,
@@ -600,22 +619,6 @@ class _HomeScreenState extends State<HomeScreen>
                             });
                           }
                         }
-
-                        if (!mounted) return;
-                        setState(() {
-                          _activeInsulin = i;
-                          _insulinType = selectedInsulin;
-                        });
-                        _runGlucosePrediction();
-                        if (!ctx.mounted) return;
-                        Navigator.pop(ctx);
-                        ScaffoldMessenger.of(ctx).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                                'Insulin updated: IOB ${i.toStringAsFixed(1)} U · $selectedInsulin'),
-                            duration: const Duration(seconds: 2),
-                          ),
-                        );
                       },
                       child: const Text('Apply & Recalculate Risk',
                           style: TextStyle(fontWeight: FontWeight.bold)),

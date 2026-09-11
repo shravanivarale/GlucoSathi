@@ -213,7 +213,10 @@ def get_cgm_provider() -> CGMProvider:
     """Return the application-wide CGM provider instance."""
     global _provider
     if _provider is None:
+        print("[CGM-DEBUG]   Initializing MockCGMProvider (synthetic CGM)…")
         _provider = MockCGMProvider()
+        print(f"[CGM-DEBUG]   MockCGMProvider initialized ✓ — "
+              f"{len(_provider._readings)} readings generated")
     return _provider
 
 

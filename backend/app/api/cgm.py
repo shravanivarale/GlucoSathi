@@ -52,11 +52,21 @@ def _get_service() -> CGMService:
 )
 def get_cgm_status():
     """Return the current CGM provider connection status."""
+    import datetime as _dt
+    _t0 = _dt.datetime.now(_dt.timezone.utc)
+    print(f"[CGM-DEBUG] ═══ /api/v1/cgm/status REACHED at {_t0.isoformat()} ═══")
     try:
         service = _get_service()
+        print(f"[CGM-DEBUG]   Provider: {service.provider.name}, "
+              f"available={service.provider.is_available}")
         status = service.get_status()
+        print(f"[CGM-DEBUG]   Status: is_connected={status.get('is_connected')}, "
+              f"reading_count={status.get('reading_count')}")
+        _t1 = _dt.datetime.now(_dt.timezone.utc)
+        print(f"[CGM-DEBUG] ═══ /status completed in {(_t1 - _t0).total_seconds():.2f}s ═══")
         return CGMProviderStatus(**status)
     except Exception as exc:
+        print(f"[CGM-DEBUG] ❌ /status FAILED: {exc}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to retrieve CGM status: {exc}",
@@ -208,10 +218,17 @@ def predict_from_cgm():
 )
 def connect_cgm():
     """Mark the current CGM provider as connected and persist the state."""
+    import datetime as _dt
+    _t0 = _dt.datetime.now(_dt.timezone.utc)
+    print(f"[CGM-DEBUG] ═══ /api/v1/cgm/connect REACHED at {_t0.isoformat()} ═══")
     try:
+        print(f"[CGM-DEBUG]   Step 1: Resolving CGM service…")
         service = _get_service()
+        print(f"[CGM-DEBUG]   Step 2: Provider selected: {service.provider.name} "
+              f"(available={service.provider.is_available})")
         now = datetime.now(timezone.utc).isoformat()
         from ..repositories.base import CGMConnectionRecord
+        print(f"[CGM-DEBUG]   Step 3: Persisting connection state…")
         service.persist_connection(
             CGMConnectionRecord(
                 provider_name=service.provider.name,
@@ -220,9 +237,15 @@ def connect_cgm():
                 last_sync_at=now,
             )
         )
+        print(f"[CGM-DEBUG]   Step 4: Connection state persisted ✓")
+        print(f"[CGM-DEBUG]   Step 5: Fetching status for response…")
         status = service.get_status()
+        print(f"[CGM-DEBUG]   Step 6: Status fetched ✓ — is_connected={status.get('is_connected')}")
+        _t1 = _dt.datetime.now(_dt.timezone.utc)
+        print(f"[CGM-DEBUG] ═══ /connect completed in {(_t1 - _t0).total_seconds():.2f}s ═══")
         return CGMProviderStatus(**status)
     except Exception as exc:
+        print(f"[CGM-DEBUG] ❌ /connect FAILED: {exc}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to connect CGM: {exc}",
