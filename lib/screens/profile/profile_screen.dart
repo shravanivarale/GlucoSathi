@@ -3,7 +3,12 @@ library;
 
 import 'package:flutter/material.dart';
 import '../../auth/auth_service.dart';
+import '../../models/cgm_connection.dart';
 import '../../models/user_profile.dart';
+import '../../services/cgm_api_service.dart';
+import '../../services/cgm_connection_state.dart';
+import '../cgm/connect_cgm_screen.dart';
+import '../cgm/cgm_status_screen.dart';
 
 /// Screen allowing the user to view and edit age, diabetes therapy parameters,
 /// and log out.
@@ -39,6 +44,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   String _selectedDiabetesType = 'Type 1';
   bool _isLoggingOut = false;
+  bool _usesInsulin = true;
+  String _selectedInsulinType = 'Rapid-acting';
 
   final List<String> _diabetesTypes = [
     'Type 1',
@@ -52,6 +59,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     _profile = widget.initialProfile ?? const UserProfile();
+
+    // Refresh CGM connection state from the backend (gets latest last_sync_at).
+    CgmConnectionState.instance.refresh().then((_) {
+      if (mounted) setState(() {});
+    });
 
     _nameController = TextEditingController(text: _profile.name);
     _ageController = TextEditingController(text: _profile.age.toString());
@@ -69,6 +81,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _basalController = TextEditingController(text: _profile.basalInsulin);
 
     _selectedDiabetesType = _profile.diabetesType;
+    _usesInsulin = _profile.usesInsulin;
+    _selectedInsulinType = _profile.insulinType;
   }
 
   @override
@@ -101,6 +115,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _profile.insulinSensitivityFactor,
       bolusInsulin: _bolusController.text.trim(),
       basalInsulin: _basalController.text.trim(),
+      usesInsulin: _usesInsulin,
+      insulinType: _selectedInsulinType,
     );
 
     setState(() => _profile = updated);
@@ -154,6 +170,82 @@ class _ProfileScreenState extends State<ProfileScreen> {
           SnackBar(content: Text('Failed to logout: $e')),
         );
       }
+    }
+  }
+
+  bool get _hasConnectedCgm =>
+      CgmConnectionState.instance.hasConnected;
+
+  CgmProvider? get _connectedProvider =>
+      CgmConnectionState.instance.connectedProvider;
+
+  Future<void> _connectCgm() async {
+    final result = await Navigator.push<Map<CgmProvider, CgmConnection>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ConnectCgmScreen(
+          connections: CgmConnectionState.instance.connections,
+        ),
+      ),
+    );
+
+    if (result != null && mounted) {
+      CgmConnectionState.instance.connections
+        ..clear()
+        ..addAll(result);
+      setState(() {});
+    }
+  }
+
+  void _viewCgmStatus() {
+    final provider = _connectedProvider;
+    if (provider == null) return;
+    final connection = CgmConnectionState.instance.connections[provider];
+    if (connection == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CgmStatusScreen(connection: connection),
+      ),
+    );
+  }
+
+  Future<void> _disconnectCgm() async {
+    final provider = _connectedProvider;
+    if (provider == null) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Disconnect CGM'),
+        content: Text(
+          'Are you sure you want to disconnect ${provider.displayName}?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Disconnect'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      CgmConnectionState.instance.disconnect(provider);
+      // Persist disconnect on the backend.
+      CgmApiService().disconnectCGM().catchError((_) => CgmBackendStatus(
+            providerName: provider.name,
+            isConnected: false,
+            readingCount: 0,
+          ));
+      setState(() {});
     }
   }
 
@@ -412,6 +504,48 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
               const SizedBox(height: 24),
 
+              // Section: Treatment Information
+              Text(
+                'Treatment Information',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              const SizedBox(height: 24),
+
+              // Section: CGM
+              Text(
+                'Continuous Glucose Monitor',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              Card(
+                elevation: 1,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: _hasConnectedCgm
+                      ? _ConnectedCgmSummary(
+                          provider: _connectedProvider!,
+                          connection: CgmConnectionState.instance.connections[_connectedProvider]!,
+                          onViewStatus: _viewCgmStatus,
+                          onDisconnect: _disconnectCgm,
+                        )
+                      : _ConnectCgmPrompt(onConnect: _connectCgm),
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
               // Save Button
               FilledButton.icon(
                 style: FilledButton.styleFrom(
@@ -457,6 +591,245 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// CGM prompt card shown when no provider is connected.
+class _ConnectCgmPrompt extends StatelessWidget {
+  const _ConnectCgmPrompt({required this.onConnect});
+
+  final VoidCallback onConnect;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                Icons.monitor_heart_outlined,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'CGM',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    'Not Connected',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Connect your CGM to automatically monitor your glucose levels and receive personalized insights.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            onPressed: onConnect,
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text(
+              'Connect CGM',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// CGM summary card shown when a provider is connected.
+class _ConnectedCgmSummary extends StatelessWidget {
+  const _ConnectedCgmSummary({
+    required this.provider,
+    required this.connection,
+    required this.onViewStatus,
+    required this.onDisconnect,
+  });
+
+  final CgmProvider provider;
+  final CgmConnection connection;
+  final VoidCallback onViewStatus;
+  final VoidCallback onDisconnect;
+
+  String _lastSyncedText() {
+    if (connection.lastSyncedAt == null) return 'Never';
+    final diff = DateTime.now().difference(connection.lastSyncedAt!);
+    print('[PROFILE] Timestamp received: ${connection.lastSyncedAt}');
+    print('[PROFILE]   diff = ${diff.inSeconds}s → ${diff.inMinutes}m');
+    if (diff.inSeconds < 60) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: Colors.green.shade700.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                Icons.monitor_heart_outlined,
+                color: Colors.green.shade700,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'CGM Connected',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green.shade700,
+                    ),
+                  ),
+                  Text(
+                    'Provider: ${provider.displayName}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.green.shade700.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade700,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Connected',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green.shade700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Icon(
+              Icons.access_time,
+              size: 14,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              'Last Synced: ${_lastSyncedText()}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                onPressed: onViewStatus,
+                icon: const Icon(Icons.analytics_outlined, size: 18),
+                label: const Text(
+                  'View CGM Status',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.red.shade700,
+                  side: BorderSide(color: Colors.red.shade300),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                onPressed: onDisconnect,
+                icon: const Icon(Icons.link_off, size: 18),
+                label: const Text(
+                  'Disconnect',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

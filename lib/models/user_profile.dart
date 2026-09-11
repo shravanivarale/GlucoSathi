@@ -14,6 +14,8 @@ class UserProfile {
     this.bolusInsulin = 'Novorapid / Regular',
     this.basalInsulin = 'Lantus / Glargine',
     this.weightKg = 68.0,
+    this.usesInsulin = true,
+    this.insulinType = 'Rapid-acting',
   });
 
   final String name;
@@ -27,6 +29,8 @@ class UserProfile {
   final String bolusInsulin;
   final String basalInsulin;
   final double weightKg;
+  final bool usesInsulin;
+  final String insulinType;
 
   UserProfile copyWith({
     String? name,
@@ -40,6 +44,8 @@ class UserProfile {
     String? bolusInsulin,
     String? basalInsulin,
     double? weightKg,
+    bool? usesInsulin,
+    String? insulinType,
   }) {
     return UserProfile(
       name: name ?? this.name,
@@ -54,6 +60,8 @@ class UserProfile {
       bolusInsulin: bolusInsulin ?? this.bolusInsulin,
       basalInsulin: basalInsulin ?? this.basalInsulin,
       weightKg: weightKg ?? this.weightKg,
+      usesInsulin: usesInsulin ?? this.usesInsulin,
+      insulinType: insulinType ?? this.insulinType,
     );
   }
 }

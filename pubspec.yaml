@@ -43,6 +43,9 @@ dependencies:
   firebase_core: ^4.13.0
   firebase_auth: ^6.5.7
 
+  # Lightweight charting for CGM glucose trend graph.
+  fl_chart: ^0.70.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

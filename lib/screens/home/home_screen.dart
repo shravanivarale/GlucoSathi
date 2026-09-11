@@ -26,6 +26,7 @@ import '../../widgets/manual_food_entry_sheet.dart';
 import '../../widgets/quick_log_bar.dart';
 import '../../widgets/risk_prediction_banner.dart';
 import '../../services/glucose_api_service.dart';
+import '../../services/insulin_api_service.dart';
 import '../profile/profile_screen.dart';
 
 /// Injectable image picker function for unit testing.
@@ -39,7 +40,7 @@ class HomeScreen extends StatefulWidget {
     this.client,
     this.pickImage,
     this.initialGlucose = 124,
-    this.initialActiveInsulin = 1.8,
+    this.initialActiveInsulin = 0.0,
   });
 
   /// Backend client used for food image analysis.
@@ -68,6 +69,7 @@ class _HomeScreenState extends State<HomeScreen>
       widget.pickImage ?? _defaultPickImage;
   final ImagePicker _imagePicker = ImagePicker();
   final GlucoseApiService _glucoseApi = GlucoseApiService();
+  final InsulinApiService _insulinApi = InsulinApiService();
 
   // State: Glucose & Insulin
   late double _currentGlucose;
@@ -102,8 +104,35 @@ class _HomeScreenState extends State<HomeScreen>
       if (mounted) setState(() {});
     });
 
+    // Load persisted insulin logs from backend.
+    _loadInsulinLogs();
+
     // Run the ML glucose forecast when the Home screen opens.
     _runGlucosePrediction();
+  }
+
+  Future<void> _loadInsulinLogs() async {
+    try {
+      final logs = await _insulinApi.getInsulinLogs(limit: 100);
+      if (!mounted) return;
+      double totalLogged = 0.0;
+      setState(() {
+        _insulinLogs.clear();
+        for (final log in logs) {
+          _insulinLogs.add({
+            'id': log.id,
+            'amount': log.doseUnits,
+            'timestamp': DateTime.parse(log.loggedAt),
+            'type': log.insulinType,
+          });
+          totalLogged += log.doseUnits;
+        }
+        // Sync Home display to total logged dose from backend.
+        _activeInsulin = totalLogged;
+      });
+    } catch (_) {
+      // Non-critical: keep in-memory logs if backend unreachable.
+    }
   }
 
   Future<void> _runGlucosePrediction() async {
@@ -424,7 +453,7 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                             const SizedBox(width: 8),
                             const Text(
-                              'Adjust Insulin / IOB (Demo Mode)',
+                              'Log Insulin Dose',
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
@@ -528,26 +557,59 @@ class _HomeScreenState extends State<HomeScreen>
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      onPressed: () {
+                      onPressed: () async {
                         final i = double.tryParse(insulinController.text) ??
                             _activeInsulin;
                         
-                        // If increased, treat as a new bolus event for prediction
+                        // Log a new dose when the user increases the value.
+                        // The delta (i - _activeInsulin) is the actual units
+                        // administered since the last logged total.
                         if (i > _activeInsulin) {
-                          _insulinLogs.add({
-                            'amount': i - _activeInsulin,
-                            'timestamp': DateTime.now(),
-                            'type': selectedInsulin,
-                          });
+                          final doseUnits = i - _activeInsulin;
+                          final now = DateTime.now();
+
+                          // Persist to backend.
+                          try {
+                            final insulinLog = await _insulinApi.logInsulin(
+                              doseUnits: doseUnits,
+                              insulinType: selectedInsulin
+                                  .replaceAll('(', '')
+                                  .replaceAll(')', '')
+                                  .trim()
+                                  .toLowerCase(),
+                              displayName: selectedInsulin,
+                              loggedAt: now.toIso8601String(),
+                            );
+                            print('[INSULIN-DEBUG] ── FLUTTER: Insulin logged ──');
+                            print('[INSULIN-DEBUG]   display_name = "${selectedInsulin}"');
+                            print('[INSULIN-DEBUG]   insulin_type = "${insulinLog.insulinType}"');
+                            print('[INSULIN-DEBUG]   dose         = ${doseUnits} U');
+                            print('[INSULIN-DEBUG]   backend_id   = ${insulinLog.id}');
+                            _insulinLogs.add({
+                              'id': insulinLog.id,
+                              'amount': doseUnits,
+                              'timestamp': now,
+                              'type': selectedInsulin,
+                            });
+                          } catch (_) {
+                            // Fallback to in-memory if backend unreachable.
+                            _insulinLogs.add({
+                              'amount': doseUnits,
+                              'timestamp': now,
+                              'type': selectedInsulin,
+                            });
+                          }
                         }
 
+                        if (!mounted) return;
                         setState(() {
                           _activeInsulin = i;
                           _insulinType = selectedInsulin;
                         });
                         _runGlucosePrediction();
+                        if (!ctx.mounted) return;
                         Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        ScaffoldMessenger.of(ctx).showSnackBar(
                           SnackBar(
                             content: Text(
                                 'Insulin updated: IOB ${i.toStringAsFixed(1)} U · $selectedInsulin'),
